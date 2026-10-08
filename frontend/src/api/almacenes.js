@@ -63,11 +63,7 @@ export const eliminarAlmacen = async (id) => {
  */
 export const fetchOpcionesAlmacen = async () => {
     try {
-        const response = await fetch(`${API_URL}/api/almacenes/opciones`);
-        if (!response.ok) {
-            throw new Error('Error al obtener opciones de almacén');
-        }
-        return await response.json();
+        return await authenticatedFetch(`${API_URL}/api/almacenes/opciones`);
     } catch (error) {
         console.error('Error al obtener opciones de almacén:', error);
         throw error;

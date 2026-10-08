@@ -65,37 +65,82 @@ exports.logout = async (req, res) => {
 };
 
 
-////////////////////////////////////////////Register////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////// HELPERS USUARIOS ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+const ROLES = ['ADMIN', 'ALMACEN', 'SUPERVISOR', 'USUARIO', 'SOLO_LECTURA'];
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 6;
+
+// Valida y normaliza los datos. Devuelve { data } o { error }.
+function validateUserData({ username, email, password, nombre_completo, rol }) {
+    if (!username || !email || !password) {
+        return { error: 'username, email y password requeridos' };
+    }
+    username = String(username).trim();
+    email = String(email).trim().toLowerCase();
+    password = String(password);
+
+    if (username.length < 3 || username.length > 50) return { error: 'El username debe tener entre 3 y 50 caracteres' };
+    if (!EMAIL_REGEX.test(email)) return { error: 'Email inválido' };
+    if (password.length < MIN_PASSWORD_LENGTH) return { error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres` };
+
+    rol = String(rol || 'USUARIO').toUpperCase();
+    if (!ROLES.includes(rol)) return { error: 'Rol inválido' };
+
+    return { data: { username, email, password, nombre_completo: nombre_completo || null, rol } };
+}
+
+// Inserta el usuario (verifica duplicados y hashea la contraseña).
+async function insertUser(conn, { username, email, password, nombre_completo, rol }) {
+    const exists = await conn.query('SELECT id FROM usuario WHERE username = ? OR email = ?', [username, email]);
+    if (exists.length > 0) return { error: 'username o email ya registrado' };
+
+    const hash = await bcrypt.hash(password, 10);
+    const result = await conn.query(
+        'INSERT INTO usuario (username, email, password_hash, nombre_completo, rol) VALUES (?, ?, ?, ?, ?)',
+        [username, email, hash, nombre_completo, rol]
+    );
+    return { user: { id: Number(result.insertId), username, email, rol } };
+}
+
+
+//////////////////////////////////////// CREAR USUARIO (solo ADMIN, puede elegir el rol) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+exports.createUser = async (req, res) => {
+    let conn;
+    try {
+        const { error, data } = validateUserData(req.body);
+        if (error) return res.status(400).json({ error });
+
+        conn = await pool.getConnection();
+        const { error: insertError, user } = await insertUser(conn, data);
+        if (insertError) return res.status(400).json({ error: insertError });
+
+        res.status(201).json(user);
+    } catch (err) {
+        if (err.errno === 1062) return res.status(400).json({ error: 'username o email ya registrado' });
+        res.status(500).json({ error: err.message });
+    } finally {
+        if (conn) conn.release();
+    }
+};
+
+
+//////////////////////////////////////// REGISTRAR USUARIO (público, siempre rol USUARIO) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 exports.register = async (req, res) => {
     let conn;
     try {
-        let { username, email, password, nombre_completo, rol } = req.body;
-        if (!username || !email || !password) return res.status(400).json({ error: 'username, email y password requeridos' });
-
-        username = username.trim();
-        email = email.trim().toLowerCase();
-        rol = (rol || 'USUARIO').toUpperCase();
-
-        if (!['ADMIN','SUPERVISOR','USUARIO','SOLO_LECTURA'].includes(rol)) {
-        return res.status(400).json({ error: 'Rol inválido' });
-        }
+        // Se ignora cualquier "rol" enviado: un registro público nunca puede crear admins.
+        const { error, data } = validateUserData({ ...req.body, rol: 'USUARIO' });
+        if (error) return res.status(400).json({ error });
 
         conn = await pool.getConnection();
-        const exists = await conn.query('SELECT id FROM usuario WHERE username = ? OR email = ?', [username, email]);
-        if (exists.length > 0) return res.status(400).json({ error: 'username o email ya registrado' });
+        const { error: insertError, user } = await insertUser(conn, data);
+        if (insertError) return res.status(400).json({ error: insertError });
 
-        const salt = await bcrypt.genSalt(10);
-        const hash = await bcrypt.hash(password, salt);
-
-        const result = await conn.query(
-            'INSERT INTO usuario (username, email, password_hash, nombre_completo, rol) VALUES (?, ?, ?, ?, ?)',
-            [username, email, hash, nombre_completo || null, rol]
-        );
-
-        res.status(201).json({ id: Number(result.insertId), username, email, rol });
+        res.status(201).json(user);
     } catch (err) {
+        if (err.errno === 1062) return res.status(400).json({ error: 'username o email ya registrado' });
         res.status(500).json({ error: err.message });
     } finally {
-        if (conn) conn && conn.release();
+        if (conn) conn.release();
     }
 };

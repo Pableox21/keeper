@@ -726,7 +726,7 @@ CREATE TABLE IF NOT EXISTS `usuario` (
 
 -- Volcando datos para la tabla keeper.usuario: ~3 rows (aproximadamente)
 INSERT INTO `usuario` (`id`, `username`, `email`, `password_hash`, `nombre_completo`, `rol`, `estado`, `ultimo_acceso`, `telefono`, `ci`, `departamento`, `created_at`, `updated_at`) VALUES
-	(1, 'admin', 'admin@keeper.com', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'Administrador Sistema', 'ADMIN', 'ACTIVO', NULL, '70000000', NULL, 'Administración', '2025-09-24 19:23:22', '2025-09-24 19:23:22'),
+	(1, 'admin', 'admin@keeper.com', '$2b$12$HND.FgoxsyCTdouzl/BHx.RvmIXcvt2hEw9n/2UI6PvFLulJboUu.', 'Administrador Sistema', 'ADMIN', 'ACTIVO', NULL, '70000000', NULL, 'Administración', '2025-09-24 19:23:22', '2025-09-24 19:23:22'),
 	(2, 'admin1', 'admin@example.com', '$2b$10$mhdawduXKKiHkl0Pj9498.ZjsAehaANbTv7BIh4wkKtpmnnYdmFIO', NULL, 'ADMIN', 'ACTIVO', '2025-10-03 15:06:38', NULL, NULL, NULL, '2025-09-26 15:53:20', '2025-10-03 15:06:38'),
 	(3, 'admin2', 'admin2@example.com', '$2b$10$1XI8jPOTXJhbsv4BpBF6ae7KG07y0gvKvsXmoKGEGk8xRopLEn/.C', NULL, 'ADMIN', 'ACTIVO', '2025-09-30 20:25:48', NULL, NULL, NULL, '2025-09-26 16:00:13', '2025-09-30 20:25:48');
 

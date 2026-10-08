@@ -1,18 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const traspasosController = require('../controllers/traspasosController');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const { authMiddleware, requireRole, denyRoles } = require('../middleware/authMiddleware');
+
+// El rol ALMACEN solo trabaja con Inventarios: sin acceso a este módulo.
+router.use(authMiddleware, denyRoles('ALMACEN'));
 
 // Rutas para opciones del formulario de traspasos
-router.get('/opciones', authMiddleware, traspasosController.getOpcionesTraspaso);
+router.get('/opciones', traspasosController.getOpcionesTraspaso);
 
 // Rutas CRUD de traspasos
-router.get('/', authMiddleware, traspasosController.getAllTraspasos);
-router.get('/:id', authMiddleware, traspasosController.getTraspasoById);
-router.post('/', authMiddleware, requireRole('ADMIN', 'ALMACEN'), traspasosController.createTraspaso);
-router.put('/:id', authMiddleware, requireRole('ADMIN', 'ALMACEN'), traspasosController.updateTraspaso);
-router.delete('/:id', authMiddleware, requireRole('ADMIN'), traspasosController.deleteTraspaso);
-router.patch('/:id/estado', authMiddleware, requireRole('ADMIN', 'ALMACEN'), traspasosController.cambiarEstadoTraspaso);
+router.get('/', traspasosController.getAllTraspasos);
+router.get('/:id', traspasosController.getTraspasoById);
+router.post('/', requireRole('ADMIN'), traspasosController.createTraspaso);
+router.put('/:id', requireRole('ADMIN'), traspasosController.updateTraspaso);
+router.delete('/:id', requireRole('ADMIN'), traspasosController.deleteTraspaso);
+router.patch('/:id/estado', requireRole('ADMIN'), traspasosController.cambiarEstadoTraspaso);
 
 
 module.exports = router;

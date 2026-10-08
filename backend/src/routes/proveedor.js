@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const proveedorController = require('../controllers/proveedorController');
-const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+const { authMiddleware, requireRole, denyRoles } = require('../middleware/authMiddleware');
 
 router.use(authMiddleware);
+router.use(denyRoles('ALMACEN'));
 
 // Obtener todos los prove.
 router.get('/', proveedorController.getAllProveedores);

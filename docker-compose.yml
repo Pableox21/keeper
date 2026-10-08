@@ -1,0 +1,63 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: keeper-backend
+    ports:
+      - "3210:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules
+    restart: unless-stopped
+    depends_on:
+      - mariadb
+    networks:
+      - keeper-network
+  
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: dockerfile.dev
+    container_name: keeper-frontend
+    ports:
+      - "3110:5173"
+    env_file:
+      - .env
+    environment:
+      - VITE_API_URL=http://localhost:3210
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - keeper-network
+  
+  mariadb:
+    image: mariadb:11
+    container_name: keeper-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3310:3306"
+    volumes:
+      - keeper_db_data:/var/lib/mysql
+      - ./database/migrations/007_productos_update.sql:/docker-entrypoint-initdb.d/keeper.sql
+    networks:
+      - keeper-network
+
+volumes:
+  keeper_db_data:
+
+networks:
+  keeper-network:

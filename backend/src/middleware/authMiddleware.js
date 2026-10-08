@@ -48,10 +48,20 @@ exports.authMiddleware = async (req, res, next) => {
     }
 };
 
-exports.requireRole = (role) => {
+// Permite el acceso solo a los roles indicados: requireRole('ADMIN') o requireRole('ADMIN', 'ALMACEN')
+exports.requireRole = (...roles) => {
     return (req, res, next) => {
         if (!req.user) return res.status(401).json({ error: 'No autorizado' });
-        if (req.user.rol !== role) return res.status(403).json({ error: 'Permiso denegado' });
+        if (!roles.includes(req.user.rol)) return res.status(403).json({ error: 'Permiso denegado' });
+        next();
+    };
+};
+
+// Bloquea los roles indicados: denyRoles('ALMACEN')
+exports.denyRoles = (...roles) => {
+    return (req, res, next) => {
+        if (!req.user) return res.status(401).json({ error: 'No autorizado' });
+        if (roles.includes(req.user.rol)) return res.status(403).json({ error: 'Permiso denegado' });
         next();
     };
 };

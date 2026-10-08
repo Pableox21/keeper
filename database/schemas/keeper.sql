@@ -599,11 +599,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   UNIQUE KEY `session_token` (`session_token`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `sessions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `usuario` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-
--- Volcando datos para la tabla keeper.sessions: ~0 rows (aproximadamente)
-INSERT INTO `sessions` (`id`, `session_token`, `user_id`, `ip`, `user_agent`, `created_at`, `last_activity`, `expires_at`) VALUES
-	(1, 'ae363b91-c0a7-409c-9158-39df26a6186f', 3, '::ffff:172.18.0.1', 'PostmanRuntime/7.47.1', '2025-09-26 16:02:54', '2025-09-26 16:02:54', '2025-09-26 19:02:54');
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- Volcando estructura para tabla keeper.tipo_almacen
 CREATE TABLE IF NOT EXISTS `tipo_almacen` (
@@ -766,13 +762,7 @@ CREATE TABLE IF NOT EXISTS `usuario` (
   KEY `idx_usuario_rol` (`rol`),
   CONSTRAINT `chk_usuario_rol` CHECK (`rol` in ('ADMIN','SUPERVISOR','USUARIO','SOLO_LECTURA')),
   CONSTRAINT `chk_usuario_estado` CHECK (`estado` in ('ACTIVO','INACTIVO','BLOQUEADO','SUSPENDIDO'))
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Volcando datos para la tabla keeper.usuario: ~2 rows (aproximadamente)
-INSERT INTO `usuario` (`id`, `username`, `email`, `password_hash`, `nombre_completo`, `rol`, `estado`, `ultimo_acceso`, `telefono`, `ci`, `departamento`, `created_at`, `updated_at`) VALUES
-	(1, 'admin', 'admin@keeper.com', '$2b$12$HND.FgoxsyCTdouzl/BHx.RvmIXcvt2hEw9n/2UI6PvFLulJboUu.', 'Administrador Sistema', 'ADMIN', 'ACTIVO', NULL, '70000000', NULL, 'Administración', '2025-09-24 19:23:22', '2025-09-24 19:23:22'),
-	(2, 'admin1', 'admin@example.com', '$2b$10$mhdawduXKKiHkl0Pj9498.ZjsAehaANbTv7BIh4wkKtpmnnYdmFIO', NULL, 'ADMIN', 'ACTIVO', NULL, NULL, NULL, NULL, '2025-09-26 15:53:20', '2025-09-26 15:53:20'),
-	(3, 'admin2', 'admin2@example.com', '$2b$10$1XI8jPOTXJhbsv4BpBF6ae7KG07y0gvKvsXmoKGEGk8xRopLEn/.C', NULL, 'ADMIN', 'ACTIVO', '2025-09-26 16:02:54', NULL, NULL, NULL, '2025-09-26 16:00:13', '2025-09-26 16:02:54');
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;

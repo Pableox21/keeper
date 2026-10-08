@@ -11,6 +11,7 @@ import Warehouses from '../components/organisms/Warehouses'
 import Transfers from '../components/organisms/Transfers'
 import InitialInventory from '../components/organisms/InitialInventory'
 import Inventory from '../components/organisms/Inventory'
+import Users from '../components/organisms/Users'
 import { useAuth } from '../hooks/useAuth'
 import { canAccess } from '../config/permissions'
 
@@ -87,6 +88,8 @@ function Dashboard() {
                 return <Inventory />
             case 'inventarioInicial':
                 return <InitialInventory />
+            case 'usuarios':
+                return <Users />
             
             default:
                 return (

@@ -22,7 +22,7 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (credentials) => {
         try {
-            setLoading(true);
+            // No se activa el loading global: desmontaría el formulario y se perdería el mensaje de error
             const response = await authAPI.login(credentials);
             
             const { token: newToken, user: userData } = response;
@@ -39,8 +39,6 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             console.error('Error en login:', error);
             return { success: false, error: error.message };
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -60,16 +58,28 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    // Registro público (no requiere sesión, rol USUARIO)
     const register = async (userData) => {
         try {
-            if (!token) {
-                throw new Error('No autorizado para registrar usuarios');
-            }
-            
-            const response = await authAPI.register(userData, token);
+            const response = await authAPI.register(userData);
             return { success: true, data: response };
         } catch (error) {
             console.error('Error en registro:', error);
+            return { success: false, error: error.message };
+        }
+    };
+
+    // Crear usuario desde el panel (requiere sesión ADMIN)
+    const createUser = async (userData) => {
+        try {
+            if (!token) {
+                throw new Error('No autorizado para crear usuarios');
+            }
+
+            const response = await authAPI.createUser(userData, token);
+            return { success: true, data: response };
+        } catch (error) {
+            console.error('Error al crear usuario:', error);
             return { success: false, error: error.message };
         }
     };
@@ -93,6 +103,7 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         register,
+        createUser,
         isAuthenticated,
         hasRole,
         isAdmin,

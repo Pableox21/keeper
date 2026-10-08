@@ -2,6 +2,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 dotenv.config();
+const { ensureDefaultUser } = require('./config/defaultUser');
 
 
 const cors = require('cors');
@@ -72,6 +73,13 @@ app.get('/', (_req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
-});
+ensureDefaultUser()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Backend running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('No se pudo crear o verificar el usuario por defecto:', error);
+    process.exit(1);
+  });

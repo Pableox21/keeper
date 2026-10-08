@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS `almacen` (
 
 -- Volcando datos para la tabla keeper.almacen: ~3 rows (aproximadamente)
 INSERT INTO `almacen` (`id`, `codigo`, `nombre`, `direccion`, `telefono`, `observacion`, `zona`, `estado`, `es_principal`, `es_tecnico`, `capacidad`, `id_cuenta_contable`, `id_tipo`, `id_responsable`, `id_centro_costo`, `created_at`, `updated_at`, `created_by`, `updated_by`, `id_tecnico_optiweb`) VALUES
-	(1, 'ALM-PRINCIPAL', 'ALMACEN CENTRAL', 'Casa Matriz - Zona Centra SACABAl', '4444444', 'Almacén principal de la empresa oP', 'CENTRAL', 'ACTIVO', 1, 0, 5000, 1, 1, 3, NULL, '2025-09-30 18:40:48', '2025-10-01 12:44:39', 3, NULL, NULL);
+	(1, 'ALM-PRINCIPAL', 'ALMACEN CENTRAL', 'Casa Matriz - Zona Centra SACABAl', '4444444', 'Almacén principal de la empresa oP', 'CENTRAL', 'ACTIVO', 1, 0, 5000, 1, 1, 1, NULL, '2025-09-30 18:40:48', '2025-10-01 12:44:39', 1, NULL, NULL);
 
 
 -- Volcando estructura para tabla keeper.categoria
@@ -550,15 +550,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   UNIQUE KEY `session_token` (`session_token`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `sessions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `usuario` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
-
--- Volcando datos para la tabla keeper.sessions: ~5 rows (aproximadamente)
-INSERT INTO `sessions` (`id`, `session_token`, `user_id`, `ip`, `user_agent`, `created_at`, `last_activity`, `expires_at`) VALUES
-	(1, 'ae363b91-c0a7-409c-9158-39df26a6186f', 3, '::ffff:172.18.0.1', 'PostmanRuntime/7.47.1', '2025-09-26 16:02:54', '2025-09-26 16:02:54', '2025-09-26 19:02:54'),
-	(2, 'a2fd1991-4a2e-449f-b0b0-d0051c9b1ba9', 3, '::ffff:172.18.0.1', 'PostmanRuntime/7.47.1', '2025-09-26 19:19:49', '2025-09-26 19:50:27', '2025-09-26 22:19:49'),
-	(3, 'a5ead35d-afc1-470f-9e33-428d7622e0f7', 3, '::ffff:172.18.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', '2025-09-30 15:34:33', '2025-09-30 15:34:33', '2025-09-30 18:34:33'),
-	(4, 'c73523e0-cc94-455b-b653-ead34acae241', 3, '::ffff:172.18.0.1', 'PostmanRuntime/7.48.0', '2025-09-30 18:38:23', '2025-09-30 20:25:48', '2025-09-30 21:38:23'),
-	(5, 'ac082dee-bbaf-4b2b-a20c-1b3fe368c960', 2, '::ffff:172.18.0.1', 'PostmanRuntime/7.48.0', '2025-10-03 14:19:13', '2025-10-03 15:06:38', '2025-10-03 17:19:13');
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- Volcando estructura para tabla keeper.tipo_almacen
 CREATE TABLE IF NOT EXISTS `tipo_almacen` (
@@ -722,13 +714,7 @@ CREATE TABLE IF NOT EXISTS `usuario` (
   KEY `idx_usuario_rol` (`rol`),
   CONSTRAINT `chk_usuario_rol` CHECK (`rol` in ('ADMIN','SUPERVISOR','USUARIO','SOLO_LECTURA')),
   CONSTRAINT `chk_usuario_estado` CHECK (`estado` in ('ACTIVO','INACTIVO','BLOQUEADO','SUSPENDIDO'))
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Volcando datos para la tabla keeper.usuario: ~3 rows (aproximadamente)
-INSERT INTO `usuario` (`id`, `username`, `email`, `password_hash`, `nombre_completo`, `rol`, `estado`, `ultimo_acceso`, `telefono`, `ci`, `departamento`, `created_at`, `updated_at`) VALUES
-	(1, 'admin', 'admin@keeper.com', '$2b$12$HND.FgoxsyCTdouzl/BHx.RvmIXcvt2hEw9n/2UI6PvFLulJboUu.', 'Administrador Sistema', 'ADMIN', 'ACTIVO', NULL, '70000000', NULL, 'Administración', '2025-09-24 19:23:22', '2025-09-24 19:23:22'),
-	(2, 'admin1', 'admin@example.com', '$2b$10$mhdawduXKKiHkl0Pj9498.ZjsAehaANbTv7BIh4wkKtpmnnYdmFIO', NULL, 'ADMIN', 'ACTIVO', '2025-10-03 15:06:38', NULL, NULL, NULL, '2025-09-26 15:53:20', '2025-10-03 15:06:38'),
-	(3, 'admin2', 'admin2@example.com', '$2b$10$1XI8jPOTXJhbsv4BpBF6ae7KG07y0gvKvsXmoKGEGk8xRopLEn/.C', NULL, 'ADMIN', 'ACTIVO', '2025-09-30 20:25:48', NULL, NULL, NULL, '2025-09-26 16:00:13', '2025-09-30 20:25:48');
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;
 /*!40101 SET SQL_MODE=IFNULL(@OLD_SQL_MODE, '') */;

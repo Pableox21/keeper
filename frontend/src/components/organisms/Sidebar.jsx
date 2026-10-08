@@ -12,6 +12,7 @@ import {
     ArchiveBoxIcon,
     AdjustmentsHorizontalIcon,
     CalendarIcon,
+    UsersIcon,
     ChevronRightIcon
 } from '@heroicons/react/24/outline'
 import { NavigationItem } from '../molecules'
@@ -66,7 +67,8 @@ function Sidebar({ collapsed, onTabOpen }) {
                 { id: 'proveedores', title: 'Proveedores', icon: TruckIcon },
                 { id: 'almacenes', title: 'Almacenes', icon: BuildingStorefrontIcon }
             ]
-        }
+        },
+        { id: 'usuarios', title: 'Usuarios', icon: UsersIcon }
     ];
 
     // Solo se muestran las opciones permitidas para el rol del usuario

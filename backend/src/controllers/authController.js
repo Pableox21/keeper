@@ -144,3 +144,122 @@ exports.register = async (req, res) => {
         if (conn) conn.release();
     }
 };
+
+
+//////////////////////////////////////// LISTAR USUARIOS (solo ADMIN) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+exports.listUsers = async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        const rows = await conn.query(
+            `SELECT id, username, email, nombre_completo, rol, estado, ultimo_acceso, created_at
+             FROM usuario
+             ORDER BY id ASC`
+        );
+        res.json(rows.map((u) => ({ ...u, id: Number(u.id) })));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        if (conn) conn.release();
+    }
+};
+
+
+//////////////////////////////////////// EDITAR USUARIO (solo ADMIN) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// La contraseña es opcional: si viene vacía no se modifica.
+function validateUserUpdate({ username, email, password, nombre_completo, rol }) {
+    if (!username || !email || !rol) return { error: 'username, email y rol requeridos' };
+
+    username = String(username).trim();
+    email = String(email).trim().toLowerCase();
+    rol = String(rol).toUpperCase();
+
+    if (username.length < 3 || username.length > 50) return { error: 'El username debe tener entre 3 y 50 caracteres' };
+    if (!EMAIL_REGEX.test(email)) return { error: 'Email inválido' };
+    if (!ROLES.includes(rol)) return { error: 'Rol inválido' };
+    if (password && String(password).length < MIN_PASSWORD_LENGTH) {
+        return { error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres` };
+    }
+
+    return { data: { username, email, password: password ? String(password) : null, nombre_completo: nombre_completo || null, rol } };
+}
+
+exports.updateUser = async (req, res) => {
+    let conn;
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'Id inválido' });
+
+        const { error, data } = validateUserUpdate(req.body);
+        if (error) return res.status(400).json({ error });
+
+        conn = await pool.getConnection();
+
+        const rows = await conn.query('SELECT id, rol FROM usuario WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        // Evita que el administrador se quite sus propios permisos y deje el sistema sin admin
+        if (Number(req.user.id) === id && data.rol !== rows[0].rol) {
+            return res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
+        }
+
+        const duplicated = await conn.query(
+            'SELECT id FROM usuario WHERE (username = ? OR email = ?) AND id <> ?',
+            [data.username, data.email, id]
+        );
+        if (duplicated.length > 0) return res.status(400).json({ error: 'username o email ya registrado' });
+
+        const fields = ['username = ?', 'email = ?', 'nombre_completo = ?', 'rol = ?'];
+        const params = [data.username, data.email, data.nombre_completo, data.rol];
+
+        if (data.password) {
+            fields.push('password_hash = ?');
+            params.push(await bcrypt.hash(data.password, 10));
+        }
+        params.push(id);
+
+        await conn.query(`UPDATE usuario SET ${fields.join(', ')} WHERE id = ?`, params);
+
+        // Si cambió la contraseña se cierran sus sesiones abiertas
+        if (data.password) await conn.query('DELETE FROM sessions WHERE user_id = ?', [id]);
+
+        res.json({ id, username: data.username, email: data.email, nombre_completo: data.nombre_completo, rol: data.rol });
+    } catch (err) {
+        if (err.errno === 1062) return res.status(400).json({ error: 'username o email ya registrado' });
+        res.status(500).json({ error: err.message });
+    } finally {
+        if (conn) conn.release();
+    }
+};
+
+
+//////////////////////////////////////// HABILITAR / DESHABILITAR USUARIO (solo ADMIN) ////////////////////////////////////////////////////////////////////////////////////////////////////
+exports.setUserStatus = async (req, res) => {
+    let conn;
+    try {
+        const id = Number(req.params.id);
+        const { estado } = req.body;
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'Id inválido' });
+        if (!['ACTIVO', 'INACTIVO'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+
+        if (Number(req.user.id) === id && estado !== 'ACTIVO') {
+            return res.status(400).json({ error: 'No puedes deshabilitar tu propio usuario' });
+        }
+
+        conn = await pool.getConnection();
+
+        const rows = await conn.query('SELECT id FROM usuario WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        await conn.query('UPDATE usuario SET estado = ? WHERE id = ?', [estado, id]);
+
+        // Al deshabilitar se cierran sus sesiones abiertas
+        if (estado === 'INACTIVO') await conn.query('DELETE FROM sessions WHERE user_id = ?', [id]);
+
+        res.json({ id, estado });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        if (conn) conn.release();
+    }
+};

@@ -11,6 +11,8 @@ Contiene los esquemas principales de la base de datos:
 ### `/migrations`
 Contiene las migraciones de base de datos organizadas secuencialmente:
 - `001_proveedores_update.sql`: Actualización de la tabla proveedores
+- `007_productos_update.sql`: Esquema completo más reciente (base de inicialización)
+- `008_rol_almacen.sql`: Agrega el rol `ALMACEN` a la restricción `chk_usuario_rol` de la tabla `usuario`
 
 
 
@@ -19,10 +21,11 @@ Contiene las migraciones de base de datos organizadas secuencialmente:
 ### Inicialización de la Base de Datos
 El archivo principal para inicializar la base de datos es:
 ```
-./database/migrations/001_proveedores_update.sql
+./database/migrations/007_productos_update.sql
 ```
 
-Este archivo se monta en el contenedor Docker para inicializar la base de datos y contiene el esquema más reciente con todas las actualizaciones.
+Este archivo se monta en el contenedor Docker para inicializar la base de datos y contiene el esquema más reciente con todas las actualizaciones. Después se carga `008_rol_almacen.sql`.
+El backend crea un único usuario administrador predeterminado al iniciar, usando `DEFAULT_USER_*` del archivo `.env`; la contraseña se almacena con hash. La base de datos inicial no incluye cuentas ni sesiones de prueba.
 
 ### Aplicar Migraciones
 Las migraciones en `/migrations` deben aplicarse en orden secuencial según su numeración.

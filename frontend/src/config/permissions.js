@@ -7,7 +7,11 @@ export const MENU_ACCESS = {
     ALMACEN: ['inventario', 'inventarioInicial'],
 };
 
+// Secciones exclusivas del ADMIN, sin importar el rol.
+const ADMIN_ONLY = ['usuarios'];
+
 export function canAccess(rol, menuId) {
+    if (ADMIN_ONLY.includes(menuId)) return rol === 'ADMIN';
     const access = MENU_ACCESS[rol];
     if (access === undefined || access === '*') return true;
     return access.includes(menuId);

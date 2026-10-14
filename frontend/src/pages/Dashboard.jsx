@@ -12,6 +12,7 @@ import Transfers from '../components/organisms/Transfers'
 import InitialInventory from '../components/organisms/InitialInventory'
 import Inventory from '../components/organisms/Inventory'
 import Users from '../components/organisms/Users'
+import Profile from '../components/organisms/Profile'
 import { useAuth } from '../hooks/useAuth'
 import { canAccess } from '../config/permissions'
 
@@ -90,6 +91,8 @@ function Dashboard() {
                 return <InitialInventory />
             case 'usuarios':
                 return <Users />
+            case 'perfil':
+                return <Profile />
             
             default:
                 return (
@@ -112,7 +115,10 @@ function Dashboard() {
 
     return (
         <div className="flex flex-col w-screen h-screen">
-            <Header onToggleSidebar={() => setSidebarCollapsed(s => !s)} />
+            <Header
+                onToggleSidebar={() => setSidebarCollapsed(s => !s)}
+                onOpenProfile={() => handleTabOpen({ id: 'perfil', title: 'Mi perfil' })}
+            />
             <div className="flex flex-1 overflow-hidden">
                 <Sidebar collapsed={sidebarCollapsed} onTabOpen={handleTabOpen} />
                 <TabManager

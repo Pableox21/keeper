@@ -263,3 +263,26 @@ exports.setUserStatus = async (req, res) => {
         if (conn) conn.release();
     }
 };
+
+
+//////////////////////////////////////// MI PERFIL (cualquier usuario autenticado) ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+exports.getProfile = async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        const rows = await conn.query(
+            `SELECT id, username, email, nombre_completo, rol, estado,
+                    telefono, ci, departamento, ultimo_acceso, created_at
+             FROM usuario
+             WHERE id = ?`,
+            [Number(req.user.id)]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        res.json({ ...rows[0], id: Number(rows[0].id) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        if (conn) conn.release();
+    }
+};

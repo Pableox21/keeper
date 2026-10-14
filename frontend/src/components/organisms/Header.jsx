@@ -8,13 +8,14 @@ import { useAuth } from '../../hooks/useAuth'
  * 
  * @param {Object} props - Propiedades del componente
  * @param {Function} props.onToggleSidebar - Función para alternar la visibilidad del sidebar
+ * @param {Function} props.onOpenProfile - Función para abrir la pestaña de perfil
  * 
  */
-function Header({ onToggleSidebar }) {
+function Header({ onToggleSidebar, onOpenProfile }) {
     const { user, logout } = useAuth();
 
     const handleProfile = () => {
-        console.log('Ir a perfil')
+        if (onOpenProfile) onOpenProfile()
     }
 
     const handleLogout = async () => {

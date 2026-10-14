@@ -25,7 +25,6 @@ El archivo principal para inicializar la base de datos es:
 ```
 
 Este archivo se monta en el contenedor Docker para inicializar la base de datos y contiene el esquema más reciente con todas las actualizaciones. Después se carga `008_rol_almacen.sql`.
-El backend crea un único usuario administrador predeterminado al iniciar, usando `DEFAULT_USER_*` del archivo `.env`; la contraseña se almacena con hash. La base de datos inicial no incluye cuentas ni sesiones de prueba.
 
 ### Aplicar Migraciones
 Las migraciones en `/migrations` deben aplicarse en orden secuencial según su numeración.

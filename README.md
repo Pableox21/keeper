@@ -100,6 +100,10 @@ Los permisos se aplican en dos lugares:
 
 > Compras e Inventario Inicial comparten el endpoint `/api/ingresos`, por lo que el backend no los distingue: un usuario `ALMACEN` podría crear un ingreso de compra por API aunque no vea esa pantalla.
 
+## Perfil de usuario
+
+Cualquier usuario (de cualquier rol) puede abrir su perfil desde el avatar de la esquina superior derecha, en la opción **Perfil**. Se abre la pestaña **Mi perfil** con sus datos: nombre completo, email, teléfono, CI, departamento, usuario, rol, estado, fecha de alta y última actividad.
+
 ## Gestión de usuarios
 
 Desde el menú lateral, la opción **Usuarios** (visible solo para `ADMIN`) abre una pantalla con la lista de usuarios, su rol, estado y último acceso. Desde ahí se puede:
@@ -119,6 +123,7 @@ Reglas de seguridad:
 | POST | `/api/auth/login` | Público | Inicia sesión y devuelve el token |
 | POST | `/api/auth/logout` | Sesión | Cierra la sesión |
 | POST | `/api/auth/register` | Público | Registro de usuario (siempre con rol `USUARIO`, máx. 10 intentos cada 15 min) |
+| GET | `/api/auth/me` | Sesión | Devuelve los datos del perfil del usuario con sesión iniciada |
 | GET | `/api/auth/users` | `ADMIN` | Lista todos los usuarios |
 | POST | `/api/auth/users` | `ADMIN` | Crea un usuario eligiendo el rol |
 | PUT | `/api/auth/users/:id` | `ADMIN` | Edita usuario, email, nombre, rol y, opcionalmente, la contraseña |

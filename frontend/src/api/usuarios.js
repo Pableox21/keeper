@@ -26,3 +26,7 @@ export async function cambiarEstadoUsuario(id, estado) {
         body: JSON.stringify({ estado })
     });
 }
+
+export async function fetchMiPerfil() {
+    return authenticatedFetch(`${API_URL}/api/auth/me`);
+}

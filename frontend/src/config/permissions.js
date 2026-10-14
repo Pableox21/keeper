@@ -10,7 +10,11 @@ export const MENU_ACCESS = {
 // Secciones exclusivas del ADMIN, sin importar el rol.
 const ADMIN_ONLY = ['usuarios'];
 
+// Secciones disponibles para cualquier usuario con sesión iniciada.
+const ALWAYS_ALLOWED = ['perfil'];
+
 export function canAccess(rol, menuId) {
+    if (ALWAYS_ALLOWED.includes(menuId)) return true;
     if (ADMIN_ONLY.includes(menuId)) return rol === 'ADMIN';
     const access = MENU_ACCESS[rol];
     if (access === undefined || access === '*') return true;

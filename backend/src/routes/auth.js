@@ -20,6 +20,9 @@ router.post('/logout', authMiddleware, authController.logout);
 // Registrar usuario (público, siempre con rol USUARIO)
 router.post('/register', registerLimiter, authController.register);
 
+// Perfil del usuario con la sesión iniciada (cualquier rol)
+router.get('/me', authMiddleware, authController.getProfile);
+
 // Gestión de usuarios (solo ADMIN)
 router.get('/users', authMiddleware, requireRole('ADMIN'), authController.listUsers);
 router.post('/users', authMiddleware, requireRole('ADMIN'), authController.createUser);

@@ -13,6 +13,7 @@ import {
     AdjustmentsHorizontalIcon,
     CalendarIcon,
     UsersIcon,
+    UserGroupIcon,
     ChevronRightIcon
 } from '@heroicons/react/24/outline'
 import { NavigationItem } from '../molecules'
@@ -68,6 +69,7 @@ function Sidebar({ collapsed, onTabOpen }) {
                 { id: 'almacenes', title: 'Almacenes', icon: BuildingStorefrontIcon }
             ]
         },
+        { id: 'clientes', title: 'Clientes', icon: UserGroupIcon },
         { id: 'usuarios', title: 'Usuarios', icon: UsersIcon }
     ];
 

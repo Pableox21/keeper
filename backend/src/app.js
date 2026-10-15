@@ -66,6 +66,10 @@ app.use('/api/traspasos', traspasosRoutes);
 const inventarioRoutes = require('./routes/inventario');
 app.use('/api/inventario', inventarioRoutes);
 
+// Rutas de clientes
+const clienteRoutes = require('./routes/cliente');
+app.use('/api/clientes', clienteRoutes);
+
 
 
 app.get('/', (_req, res) => {
@@ -73,13 +77,15 @@ app.get('/', (_req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-ensureDefaultUser()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Backend running on port ${PORT}`);
-    });
-  })
-  .catch((error) => {
-    console.error('No se pudo crear o verificar el usuario por defecto:', error);
-    process.exit(1);
+
+async function start() {
+  await ensureDefaultUser();
+  app.listen(PORT, () => {
+    console.log(`Backend running on port ${PORT}`);
   });
+}
+
+start().catch((error) => {
+  console.error('No se pudo preparar el usuario por defecto:', error.message);
+  process.exit(1);
+});

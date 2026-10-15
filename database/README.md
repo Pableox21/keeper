@@ -13,6 +13,7 @@ Contiene las migraciones de base de datos organizadas secuencialmente:
 - `001_proveedores_update.sql`: Actualización de la tabla proveedores
 - `007_productos_update.sql`: Esquema completo más reciente (base de inicialización)
 - `008_rol_almacen.sql`: Agrega el rol `ALMACEN` a la restricción `chk_usuario_rol` de la tabla `usuario`
+- `009_clientes.sql`: Crea la tabla `cliente_internet` (gestión de clientes: contrato, CI, celular, zona, plan y estado). No modifica la tabla `cliente` original
 
 
 

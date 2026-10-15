@@ -54,6 +54,7 @@ services:
       - keeper_db_data:/var/lib/mysql
       - ./database/migrations/007_productos_update.sql:/docker-entrypoint-initdb.d/keeper.sql
       - ./database/migrations/008_rol_almacen.sql:/docker-entrypoint-initdb.d/rol_almacen.sql
+      - ./database/migrations/009_clientes.sql:/docker-entrypoint-initdb.d/tabla_clientes.sql
     networks:
       - keeper-network
 

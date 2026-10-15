@@ -100,6 +100,25 @@ Los permisos se aplican en dos lugares:
 
 > Compras e Inventario Inicial comparten el endpoint `/api/ingresos`, por lo que el backend no los distingue: un usuario `ALMACEN` podría crear un ingreso de compra por API aunque no vea esa pantalla.
 
+## Gestión de clientes
+
+La opción **Clientes** del menú lateral abre la pantalla de gestión de clientes del servicio de internet. Cada cliente tiene:
+
+| Campo | Detalle |
+|-------|---------|
+| N° de contrato | Obligatorio y único |
+| Nombre completo | Obligatorio, solo letras (con tildes y ñ), espacios y los signos `. ' -`; sin números |
+| CI | Obligatorio, solo dígitos (5 a 10) |
+| Complemento del CI | Opcional, de 1 a 3 letras o números (ej. `1A`) |
+| Celular | 8 dígitos, empieza con 6 o 7 |
+| Zona | Sipe Sipe, Suticollo o Mallco Chapi |
+| Plan de internet | Económico, Medio, Premium o Gamer |
+| Estado | Activo o Desactivado |
+
+Desde la pantalla se puede **crear**, **editar**, **activar / desactivar** y **eliminar** clientes, y buscar por contrato, nombre, CI, celular, zona o plan. Eliminar es definitivo y pide confirmación; para conservar el historial de un cliente conviene desactivarlo en lugar de eliminarlo.
+
+Permisos: los usuarios con rol `ADMIN` pueden crear, editar, cambiar el estado y eliminar; el resto de roles solo consulta la lista. El rol `ALMACEN` no tiene acceso a este módulo.
+
 ## Perfil de usuario
 
 Cualquier usuario (de cualquier rol) puede abrir su perfil desde el avatar de la esquina superior derecha, en la opción **Perfil**. Se abre la pestaña **Mi perfil** con sus datos: nombre completo, email, teléfono, CI, departamento, usuario, rol, estado, fecha de alta y última actividad.
@@ -150,14 +169,25 @@ curl -X POST http://localhost:3210/api/auth/users \
 
 Validaciones: `username` de 3 a 50 caracteres, email válido, contraseña de al menos 6 caracteres y `username`/`email` únicos.
 
+## API de clientes
+
+| Método | Ruta | Acceso | Descripción |
+|--------|------|--------|-------------|
+| GET | `/api/clientes` | Sesión (excepto `ALMACEN`) | Lista los clientes |
+| POST | `/api/clientes` | `ADMIN` | Crea un cliente |
+| PUT | `/api/clientes/:id` | `ADMIN` | Edita un cliente |
+| PATCH | `/api/clientes/:id/estado` | `ADMIN` | Activa (`ACTIVO`) o desactiva (`INACTIVO`) un cliente |
+| DELETE | `/api/clientes/:id` | `ADMIN` | Elimina definitivamente un cliente |
+
 ## Base de datos
 
-Las migraciones están en `database/migrations/` y se aplican en orden numérico. Con una base nueva, Docker carga `007_productos_update.sql` y `008_rol_almacen.sql` automáticamente.
+Las migraciones están en `database/migrations/` y se aplican en orden numérico. Con una base nueva, Docker carga `007_productos_update.sql`, `008_rol_almacen.sql` y `009_clientes.sql` automáticamente.
 
-Si ya tienes una base creada, aplica la migración del rol `ALMACEN` una sola vez:
+Si ya tienes una base creada, aplica estas migraciones una sola vez (rol `ALMACEN` y tabla de clientes):
 
 ```bash
 docker exec -i keeper-db sh -c 'mariadb -uroot -p"$DB_ROOT_PASSWORD"' < database/migrations/008_rol_almacen.sql
+docker exec -i keeper-db sh -c 'mariadb -uroot -p"$DB_ROOT_PASSWORD"' < database/migrations/009_clientes.sql
 ```
 
 ## Desarrollo sin Docker

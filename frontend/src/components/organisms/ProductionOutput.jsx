@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { onlyDigits } from '../../utils/fieldRules';
 import { WrenchScrewdriverIcon, PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import Button from '../atoms/Button';
 import { Input, Select, Alert } from '../atoms';
@@ -467,7 +468,7 @@ function ProductionOutput() {
                                                                 min={1}
                                                                 max={detalle.stock_actual}
                                                                 value={detalle.cantidad}
-                                                                onChange={e => handleCantidadChange(index, Number(e.target.value))}
+                                                                onChange={e => handleCantidadChange(index, Math.min(Number(detalle.stock_actual) || Infinity, Math.max(1, parseInt(onlyDigits(e.target.value, 7) || '1', 10))))}
                                                                 className="w-20"
                                                             />
                                                         </td>

@@ -675,7 +675,9 @@ CREATE TABLE IF NOT EXISTS `traspaso` (
   `estado` varchar(20) DEFAULT 'PENDIENTE',
   `observaciones` text DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_by` int(11) DEFAULT NULL,
+  `updated_by` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `codigo` (`codigo`),
   KEY `idx_traspaso_codigo` (`codigo`),
@@ -684,10 +686,12 @@ CREATE TABLE IF NOT EXISTS `traspaso` (
   KEY `idx_traspaso_almacen_destino` (`id_almacen_destino`),
   KEY `idx_traspaso_almacenero` (`id_almacenero`),
   KEY `fk_traspaso_created_by` (`created_by`),
+  KEY `fk_traspaso_updated_by` (`updated_by`),
   CONSTRAINT `fk_traspaso_almacen_destino` FOREIGN KEY (`id_almacen_destino`) REFERENCES `almacen` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   CONSTRAINT `fk_traspaso_almacen_origen` FOREIGN KEY (`id_almacen_origen`) REFERENCES `almacen` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   CONSTRAINT `fk_traspaso_almacenero` FOREIGN KEY (`id_almacenero`) REFERENCES `usuario` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   CONSTRAINT `fk_traspaso_created_by` FOREIGN KEY (`created_by`) REFERENCES `usuario` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_traspaso_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `usuario` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `chk_traspaso_estado` CHECK (`estado` in ('PENDIENTE','PROCESADO','COMPLETADO','CANCELADO'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -747,7 +751,7 @@ CREATE TABLE IF NOT EXISTS `usuario` (
   `email` varchar(255) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
   `nombre_completo` varchar(255) DEFAULT NULL,
-  `rol` varchar(20) DEFAULT 'USUARIO',
+  `rol` varchar(20) DEFAULT 'ALMACEN',
   `estado` varchar(20) DEFAULT 'ACTIVO',
   `ultimo_acceso` timestamp NULL DEFAULT NULL,
   `telefono` varchar(20) DEFAULT NULL,
@@ -760,7 +764,7 @@ CREATE TABLE IF NOT EXISTS `usuario` (
   UNIQUE KEY `email` (`email`),
   KEY `idx_usuario_estado` (`estado`),
   KEY `idx_usuario_rol` (`rol`),
-  CONSTRAINT `chk_usuario_rol` CHECK (`rol` in ('ADMIN','SUPERVISOR','USUARIO','SOLO_LECTURA')),
+  CONSTRAINT `chk_usuario_rol` CHECK (`rol` in ('ADMIN','ALMACEN','ATENCION_CLIENTE')),
   CONSTRAINT `chk_usuario_estado` CHECK (`estado` in ('ACTIVO','INACTIVO','BLOQUEADO','SUSPENDIDO'))
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

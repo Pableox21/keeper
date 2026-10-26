@@ -5,6 +5,7 @@ import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { Input, Alert } from '../atoms'
 import Button from '../atoms/Button';
 import { FormField } from '../molecules'
+import { onlyDigits, phoneChars, codeChars } from '../../utils/fieldRules';
 import {
     fetchProveedores,
     crearProveedor,
@@ -192,7 +193,7 @@ function Suppliers() {
                             <FormField label="Código" layout="side" required className="col-span-1" labelClassName="w-20">
                                 <Input
                                     value={formData.cod}
-                                    onChange={e => handleInputChange('cod', e.target.value)}
+                                    onChange={e => handleInputChange('cod', codeChars(e.target.value, 50))}
                                     disabled={formMode === 'disabled'}
                                     required
                                 />
@@ -206,7 +207,7 @@ function Suppliers() {
                                 />
                             </FormField>
                             <FormField label="NIT" layout="side" className="col-span-1" labelClassName="w-20">
-                                <Input value={formData.nit} onChange={e => handleInputChange('nit', e.target.value)} disabled={formMode === 'disabled'} />
+                                <Input value={formData.nit} onChange={e => handleInputChange('nit', onlyDigits(e.target.value, 20))} disabled={formMode === 'disabled'} />
                             </FormField>
                             <FormField label="Ciudad" layout="side" className="col-span-1" labelClassName="w-20">
                                 <Input value={formData.ciudad} onChange={e => handleInputChange('ciudad', e.target.value)} disabled={formMode === 'disabled'} />
@@ -223,7 +224,7 @@ function Suppliers() {
                                         <div key={idx} className="flex items-center gap-1">
                                             <Input
                                                 value={t}
-                                                onChange={e => handleListChange('telefonos', idx, e.target.value)}
+                                                onChange={e => handleListChange('telefonos', idx, phoneChars(e.target.value))}
                                                 placeholder="Teléfono"
                                                 disabled={formMode === 'disabled'}
                                             />

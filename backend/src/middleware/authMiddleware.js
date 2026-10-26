@@ -1,6 +1,20 @@
 const { pool }= require('../config/db');
 const INACTIVITY_MINUTES = Number(process.env.SESSION_INACTIVITY_MINUTES || 180);
 
+// Roles encerrados en una sección del sistema: fuera de esas rutas responden 403 aunque la ruta
+// no declare requireRole. Se comprueba aquí porque authMiddleware corre en toda ruta autenticada.
+const ROLE_SCOPES = {
+    ATENCION_CLIENTE: ['/api/clientes']
+};
+
+// /api/auth queda siempre disponible: login, logout y perfil propio.
+function fueraDelAlcance(rol, originalUrl) {
+    const permitido = ROLE_SCOPES[rol];
+    if (!permitido) return false;
+    const path = String(originalUrl || '').split('?')[0];
+    if (path === '/api/auth' || path.startsWith('/api/auth/')) return false;
+    return !permitido.some((prefix) => path.startsWith(prefix));
+}
 
 exports.authMiddleware = async (req, res, next) => {
     let conn;
@@ -39,6 +53,10 @@ exports.authMiddleware = async (req, res, next) => {
             rol: session.rol,
             sessionToken: token
         };
+
+        if (fueraDelAlcance(req.user.rol, req.originalUrl)) {
+            return res.status(403).json({ error: 'Permiso denegado' });
+        }
 
         next();
     } catch (err) {

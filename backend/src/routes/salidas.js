@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const salidasController = require('../controllers/salidasController');
-const { authMiddleware, requireRole, denyRoles } = require('../middleware/authMiddleware');
+const validate = require('../middleware/validate');
 
-// El rol ALMACEN solo trabaja con Inventarios: sin acceso a este módulo.
-router.use(authMiddleware, denyRoles('ALMACEN'));
+// Los ids de la URL deben ser enteros positivos
+router.param('id', validate.validateIdParam);
+const salidasController = require('../controllers/salidasController');
+const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
+
+router.use(authMiddleware);
 
 // Rutas para opciones del formulario en Salidas
 router.get('/opciones', salidasController.getOpcionesSalida);
@@ -13,6 +16,6 @@ router.get('/opciones', salidasController.getOpcionesSalida);
 // Rutas CRUD de salidas
 router.get('/', salidasController.getAllSalidas);
 router.get('/:id', salidasController.getSalidaById);
-router.post('/', requireRole('ADMIN'), salidasController.createSalida);
+router.post('/', requireRole('ADMIN', 'ALMACEN'), validate.validateSalida, salidasController.createSalida);
 
 module.exports = router;

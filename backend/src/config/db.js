@@ -11,13 +11,17 @@ const pool = mariadb.createPool({
 });
 
 
+// Base externa de Optiweb: si el host no está a mano se corta en ~2,5 s en lugar de esperar los
+// 10 s por defecto, para que las pantallas que dependen de ella respondan rápido con sus datos locales.
 const poolOptiweb = mariadb.createPool({
   host: process.env.DB_OPTIMUS_HOST,
   user: process.env.DB_OPTIMUS_USER,
   password: process.env.DB_OPTIMUS_PASSWORD,
   database: process.env.DB_OPTIMUS_NAME,
   port: process.env.DB_OPTIMUS_PORT,
-  connectionLimit: 5
+  connectionLimit: 5,
+  connectTimeout: 2500,
+  acquireTimeout: 2500
 });
 
 module.exports = {

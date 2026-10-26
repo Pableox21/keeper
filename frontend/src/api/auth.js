@@ -38,24 +38,6 @@ export const authAPI = {
         return response.json();
     },
 
-    // Registro público de usuario (siempre se crea con rol USUARIO)
-    register: async (userData) => {
-        const response = await fetch(`${API_URL}/api/auth/register`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(userData),
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Error en el registro');
-        }
-
-        return response.json();
-    },
-
     // Crear usuario (solo ADMIN, puede elegir el rol)
     createUser: async (userData, token) => {
         const response = await fetch(`${API_URL}/api/auth/users`, {

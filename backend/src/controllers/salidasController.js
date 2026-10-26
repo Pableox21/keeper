@@ -24,7 +24,7 @@ const { handleBigInt } = require('../utils/bigIntHandler');
 /--------------------Obtener Opciones para Formulario Salidas-------------------------------------------------------------------------------------/
 exports.getOpcionesSalida = async (req, res) => {
     try {
-        const [almacenes, tiposSalida, responsables, productos, departamentos, olts] = await Promise.all([
+        const [almacenes, tiposSalida, responsables, productos, departamentos] = await Promise.all([
             pool.query(`
                 SELECT id, codigo, nombre 
                 FROM almacen 
@@ -42,27 +42,35 @@ exports.getOpcionesSalida = async (req, res) => {
                 AND i.id_almacen = 1  -- Solo productos del almacén principal
                 AND i.stock_actual > 0
             `),
-            pool.query('SELECT id, codigo, nombre FROM departamento'),
-            poolOptiweb.query('SELECT codigo as id, nombre as respuesta FROM olt')
+            pool.query('SELECT id, codigo, nombre FROM departamento')
         ]);
 
-
-        // Obtener contratos válidos según la lógica solicitada
-        const clientes_internos = await poolOptiweb.query(`
-                        SELECT c.CODIGO as contrato, CONCAT(cl.NOMBRES, ' ', cl.APELLIDOS) as nombre_completo
-                        FROM contratos c
-                        INNER JOIN clientes cl ON c.COD_CLI = cl.CODIGO
-                        WHERE
-                            (
-                                c.codigo LIKE 'ATT-%'
-                                AND CAST(SUBSTRING(c.codigo, 5) AS UNSIGNED) > 100000
-                            )
-                            OR (
-                                c.codigo NOT LIKE 'ATT-%'
-                                AND c.codigo REGEXP '^[0-9]+$'
-                            )
-                        ORDER BY nombre_completo
-                `);
+        // Optiweb es una base externa: si no está a mano, el formulario se arma igualmente con los
+        // datos locales y sus combos (OLTS y contratos internos) quedan vacíos.
+        let olts = [];
+        let clientes_internos = [];
+        try {
+            [olts, clientes_internos] = await Promise.all([
+                poolOptiweb.query('SELECT codigo as id, nombre as respuesta FROM olt'),
+                poolOptiweb.query(`
+                    SELECT c.CODIGO as contrato, CONCAT(cl.NOMBRES, ' ', cl.APELLIDOS) as nombre_completo
+                    FROM contratos c
+                    INNER JOIN clientes cl ON c.COD_CLI = cl.CODIGO
+                    WHERE
+                        (
+                            c.codigo LIKE 'ATT-%'
+                            AND CAST(SUBSTRING(c.codigo, 5) AS UNSIGNED) > 100000
+                        )
+                        OR (
+                            c.codigo NOT LIKE 'ATT-%'
+                            AND c.codigo REGEXP '^[0-9]+$'
+                        )
+                    ORDER BY nombre_completo
+                `)
+            ]);
+        } catch (error) {
+            console.warn('Optiweb no disponible: opciones de salida sin OLTS ni contratos internos:', error.message);
+        }
 
         const response = {
             almacenes,

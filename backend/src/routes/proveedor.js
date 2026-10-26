@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const validate = require('../middleware/validate');
+
+// Los ids de la URL deben ser enteros positivos
+router.param('id', validate.validateIdParam);
 const proveedorController = require('../controllers/proveedorController');
-const { authMiddleware, requireRole, denyRoles } = require('../middleware/authMiddleware');
+const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
 
 router.use(authMiddleware);
-router.use(denyRoles('ALMACEN'));
 
 // Obtener todos los prove.
 router.get('/', proveedorController.getAllProveedores);
@@ -15,21 +18,20 @@ router.get('/:id', proveedorController.getProveedorById);
 
 
 
-///ESTA PARTE ES MODIFICABLE, POR AHORA LA ACCION DE CREACION,EDICION,BORRADO DE PROVEEDORES esta solo para roles SUPERVIDOR o ADMIN
-// Crear ->  solo ADMIN y SUPERVISOR
-router.post('/', requireRole('ADMIN'), proveedorController.createProveedor);
+// Crear -> ADMIN y ALMACEN
+router.post('/', requireRole('ADMIN', 'ALMACEN'), validate.validateProveedor(false), proveedorController.createProveedor);
 
 
-// Actualizar -> SUPERVISOR o ADMIN
-router.put('/:id', requireRole('ADMIN'), proveedorController.updateProveedor);
+// Actualizar -> ADMIN y ALMACEN
+router.put('/:id', requireRole('ADMIN', 'ALMACEN'), validate.validateProveedor(true), proveedorController.updateProveedor);
 
 
-// Borrar -> solo ADMIN
-router.delete('/:id', requireRole('ADMIN'), proveedorController.deleteProveedor);
+// Borrar -> ADMIN y ALMACEN
+router.delete('/:id', requireRole('ADMIN', 'ALMACEN'), proveedorController.deleteProveedor);
 
 
-//Actualizar a Proveedor autorizado o viceversa-> SUPERVISOR
-router.post('/:id/autorizado', requireRole('ADMIN'), proveedorController.setAutorizado);
+//Actualizar a Proveedor autorizado o viceversa-> ADMIN y ALMACEN
+router.post('/:id/autorizado', requireRole('ADMIN', 'ALMACEN'), proveedorController.setAutorizado);
 
 
 module.exports = router;

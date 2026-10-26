@@ -21,6 +21,7 @@ import EventBus from '../../utils/EventBus';
 import { fetchUnidadesMedida, crearUnidadMedida } from '../../api/unidadesMedida';
 
 
+import { onlyDigits, codeChars } from '../../utils/fieldRules';
 function Products() {
     const { alert, showAlert, closeAlert } = useAlert();
     const [formMode, setFormMode] = useState('disabled');
@@ -767,7 +768,7 @@ function Products() {
                                     <FormField label="Código" layout="side" required labelClassName="w-20">
                                         <Input
                                             value={formData.codigo}
-                                            onChange={e => handleChange('codigo', e.target.value)}
+                                            onChange={e => handleChange('codigo', codeChars(e.target.value, 50))}
                                             placeholder="Código"
                                             required
                                             disabled={formMode === 'disabled'}
@@ -798,7 +799,7 @@ function Products() {
                                             <Input
                                                 type="number"
                                                 value={formData.stockMinimo}
-                                                onChange={e => handleChange('stockMinimo', e.target.value)}
+                                                onChange={e => handleChange('stockMinimo', onlyDigits(e.target.value, 9))}
                                                 placeholder="0"
                                                 disabled={formMode === 'disabled'}
                                             />
@@ -807,7 +808,7 @@ function Products() {
                                             <Input
                                                 type="number"
                                                 value={formData.stockMaximo}
-                                                onChange={e => handleChange('stockMaximo', e.target.value)}
+                                                onChange={e => handleChange('stockMaximo', onlyDigits(e.target.value, 9))}
                                                 placeholder="0"
                                                 disabled={formMode === 'disabled'}
                                             />

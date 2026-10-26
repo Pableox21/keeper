@@ -176,7 +176,7 @@ function Transfers() {
             setSelectedTransfer(null);
         } catch (error) {
             console.error('Error al guardar:', error);
-            showAlert('error', 'Error al guardar el traspaso');
+            showAlert('error', error.message || 'Error al guardar el traspaso');
         } finally {
             setLoading(false);
         }

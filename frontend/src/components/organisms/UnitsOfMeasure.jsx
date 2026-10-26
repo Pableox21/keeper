@@ -185,14 +185,14 @@ function UnitsOfMeasure() {
                             <FormField label="Nombre" layout='side' required>
                                 <Input 
                                     value={form.nombre}
-                                    onChange={e => handleChange('nombre', e.target.value)}
+                                    onChange={e => handleChange('nombre', e.target.value.slice(0, 50))}
                                     placeholder="Ej: Metro" 
                                 />
                             </FormField>
                             <FormField label="Abreviatura" layout='side' required>
                                 <Input 
                                     value={form.abreviatura}
-                                    onChange={e => handleChange('abreviatura', e.target.value)}
+                                    onChange={e => handleChange('abreviatura', e.target.value.slice(0, 10))}
                                     placeholder="Ej: m" 
                                 />
                             </FormField>

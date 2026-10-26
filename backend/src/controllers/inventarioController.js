@@ -5,7 +5,10 @@ const { handleBigInt } = require('../utils/bigIntHandler');
 /--------------------Obtener inventario por almacén--------------------------------------------------------------------------------------/
 exports.getInventarioByAlmacen = async (req, res) => {
     try {
-        const { id_almacen } = req.params;
+        const idAlmacen = Number(req.params.id_almacen);
+        if (!Number.isInteger(idAlmacen) || idAlmacen <= 0) {
+            return res.status(400).json({ error: 'El id de almacén debe ser un número entero positivo' });
+        }
         
         const query = `
             SELECT 
@@ -31,7 +34,7 @@ exports.getInventarioByAlmacen = async (req, res) => {
             ORDER BY p.nombre ASC
         `;
         
-        const inventario = await pool.query(query, [Number(id_almacen)]);
+        const inventario = await pool.query(query, [idAlmacen]);
         res.json(handleBigInt(inventario));
         
     } catch (error) {

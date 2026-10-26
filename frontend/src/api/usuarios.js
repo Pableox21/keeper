@@ -30,3 +30,9 @@ export async function cambiarEstadoUsuario(id, estado) {
 export async function fetchMiPerfil() {
     return authenticatedFetch(`${API_URL}/api/auth/me`);
 }
+
+export async function eliminarUsuario(id) {
+    return authenticatedFetch(`${API_URL}/api/auth/users/${id}`, {
+        method: 'DELETE'
+    });
+}

@@ -2,22 +2,42 @@ import { useState, useEffect, useCallback } from 'react';
 import { useForm } from '../../hooks/useForm';
 import { useAlert } from '../../hooks/useAlert';
 import { useAuth } from '../../hooks/useAuth';
-import { validateRequiredFields } from '../../utils/validation';
-import { PlusIcon, PencilIcon, NoSymbolIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { usernameChars, nameChars, EMAIL_REGEX, NAME_REGEX, USERNAME_REGEX } from '../../utils/fieldRules';
+import { PlusIcon, PencilIcon, NoSymbolIcon, CheckCircleIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { Input, Select, Alert } from '../atoms';
 import Button from '../atoms/Button';
 import { FormField } from '../molecules';
-import { fetchUsuarios, crearUsuario, editarUsuario, cambiarEstadoUsuario } from '../../api/usuarios';
+import { fetchUsuarios, crearUsuario, editarUsuario, cambiarEstadoUsuario, eliminarUsuario } from '../../api/usuarios';
 
 const ROLES = [
     { value: 'ADMIN', label: 'Administrador' },
     { value: 'ALMACEN', label: 'Almacén' },
-    { value: 'SUPERVISOR', label: 'Supervisor' },
-    { value: 'USUARIO', label: 'Usuario' },
-    { value: 'SOLO_LECTURA', label: 'Solo lectura' }
+    { value: 'ATENCION_CLIENTE', label: 'Atención al cliente' }
 ];
 
 const MIN_PASSWORD_LENGTH = 6;
+const MAX_PASSWORD_LENGTH = 72;
+
+const validateForm = (form, mode) => {
+    const username = form.username.trim();
+    if (!username) return 'Ingresa el usuario';
+    if (username.length < 3) return 'El usuario debe tener al menos 3 caracteres';
+    if (!USERNAME_REGEX.test(username)) return 'El usuario solo puede contener letras, números y los signos . _ - (sin espacios)';
+
+    const nombre = form.nombre_completo.trim();
+    if (nombre && nombre.length < 3) return 'El nombre completo debe tener al menos 3 caracteres';
+    if (nombre && !NAME_REGEX.test(nombre)) return 'El nombre completo solo puede contener letras y espacios (sin números ni símbolos)';
+
+    if (!form.email.trim()) return 'Ingresa el email';
+    if (!EMAIL_REGEX.test(form.email.trim())) return 'El email no es válido';
+
+    if (!form.rol) return 'Selecciona el rol';
+
+    if (mode === 'creating' && !form.password) return 'Ingresa una contraseña';
+    if (form.password && form.password.length < MIN_PASSWORD_LENGTH) return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`;
+    if (form.password && form.password.length > MAX_PASSWORD_LENGTH) return `La contraseña no puede superar los ${MAX_PASSWORD_LENGTH} caracteres`;
+    return null;
+};
 
 const getRolLabel = (rol) => ROLES.find((r) => r.value === rol)?.label || rol;
 
@@ -130,20 +150,35 @@ function Users() {
         }
     };
 
+    // Eliminar usuario (definitivo)
+    const handleDelete = async () => {
+        if (!selectedUsuario) {
+            showAlert('warning', 'Selecciona un usuario para eliminar');
+            return;
+        }
+
+        if (!confirm(
+            `¿Eliminar definitivamente al usuario "${selectedUsuario.username}"?\n\nEsta acción no se puede deshacer. Si solo quieres impedir que ingrese al sistema, usa "Deshabilitar".`
+        )) {
+            return;
+        }
+
+        try {
+            await eliminarUsuario(selectedUsuario.id);
+            showAlert('success', 'Usuario eliminado correctamente');
+            setSelectedUsuario(null);
+            await loadUsuarios();
+        } catch (error) {
+            showAlert('error', error.message);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        const validationError = validateRequiredFields(form, ['username', 'email', 'rol']);
+        const validationError = validateForm(form, formMode);
         if (validationError) {
             showAlert('warning', validationError);
-            return;
-        }
-        if (formMode === 'creating' && !form.password) {
-            showAlert('warning', 'Por favor, ingresa una contraseña');
-            return;
-        }
-        if (form.password && form.password.length < MIN_PASSWORD_LENGTH) {
-            showAlert('warning', `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
             return;
         }
 
@@ -197,6 +232,12 @@ function Users() {
                                     <><CheckCircleIcon className="w-4 h-4" /> Habilitar</>
                                 )}
                             </Button>
+                            <Button
+                                onClick={handleDelete}
+                                disabled={!selectedUsuario || isSelf(selectedUsuario)}
+                            >
+                                <TrashIcon className="w-4 h-4" /> Eliminar
+                            </Button>
                         </>
                     )}
                     {(formMode === 'creating' || formMode === 'editing') && (
@@ -215,14 +256,14 @@ function Users() {
                             <FormField className="col-span-2" label="Usuario" layout="side" required>
                                 <Input
                                     value={form.username}
-                                    onChange={e => handleChange('username', e.target.value)}
+                                    onChange={e => handleChange('username', usernameChars(e.target.value))}
                                     placeholder="Ej: almacen1"
                                 />
                             </FormField>
                             <FormField className="col-span-2" label="Nombre completo" layout="side">
                                 <Input
                                     value={form.nombre_completo}
-                                    onChange={e => handleChange('nombre_completo', e.target.value)}
+                                    onChange={e => handleChange('nombre_completo', nameChars(e.target.value))}
                                     placeholder="Ej: Juan Pérez"
                                 />
                             </FormField>
@@ -230,7 +271,7 @@ function Users() {
                                 <Input
                                     type="email"
                                     value={form.email}
-                                    onChange={e => handleChange('email', e.target.value)}
+                                    onChange={e => handleChange('email', e.target.value.replace(/\s/g, '').slice(0, 255))}
                                     placeholder="correo@ejemplo.com"
                                 />
                             </FormField>
@@ -253,7 +294,7 @@ function Users() {
                                 <Input
                                     type="password"
                                     value={form.password}
-                                    onChange={e => handleChange('password', e.target.value)}
+                                    onChange={e => handleChange('password', e.target.value.slice(0, MAX_PASSWORD_LENGTH))}
                                     placeholder={formMode === 'editing' ? 'Dejar vacío para no cambiarla' : 'Mínimo 6 caracteres'}
                                     autoComplete="new-password"
                                 />

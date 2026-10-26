@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { onlyDigits } from '../../utils/fieldRules';
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { Input, Alert, Select } from '../atoms';
 import { ComboBox } from '../molecules';
@@ -587,7 +588,7 @@ function Compras() {
                                                                 type="number"
                                                                 min={1}
                                                                 value={item.cantidad}
-                                                                onChange={e => handleDetalleChange(idx, 'cantidad', Number(e.target.value))}
+                                                                onChange={e => handleDetalleChange(idx, 'cantidad', Math.max(1, parseInt(onlyDigits(e.target.value, 7) || '1', 10)))}
                                                                 className="w-16 text-right text-xs"
                                                             />
                                                         </td>
@@ -596,7 +597,7 @@ function Compras() {
                                                                 type="number"
                                                                 min={0}
                                                                 value={item.precio}
-                                                                onChange={e => handleDetalleChange(idx, 'precio', Number(e.target.value))}
+                                                                onChange={e => handleDetalleChange(idx, 'precio', Math.max(0, Number(e.target.value) || 0))}
                                                                 className="w-20 text-right text-xs"
                                                             />
                                                         </td>

@@ -21,6 +21,9 @@ function validateCliente(body = {}) {
 
     if (!numero_contrato) return { error: 'El número de contrato es requerido' };
     if (numero_contrato.length > 30) return { error: 'El número de contrato no puede superar los 30 caracteres' };
+    if (!/^[A-Za-z0-9][A-Za-z0-9./-]*$/.test(numero_contrato)) {
+        return { error: 'El número de contrato solo puede contener letras, números y los signos . / -' };
+    }
     if (!nombre_completo) return { error: 'El nombre completo es requerido' };
     if (nombre_completo.length < 3) return { error: 'El nombre completo debe tener al menos 3 caracteres' };
     if (nombre_completo.length > 255) return { error: 'El nombre completo es demasiado largo' };

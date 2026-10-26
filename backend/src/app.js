@@ -2,7 +2,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 dotenv.config();
-const { ensureDefaultUser } = require('./config/defaultUser');
+const { prepareDatabase } = require('./config/startup');
 
 
 const cors = require('cors');
@@ -78,14 +78,12 @@ app.get('/', (_req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-async function start() {
-  await ensureDefaultUser();
-  app.listen(PORT, () => {
-    console.log(`Backend running on port ${PORT}`);
-  });
-}
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
+});
 
-start().catch((error) => {
-  console.error('No se pudo preparar el usuario por defecto:', error.message);
-  process.exit(1);
+// La preparación de la base (esquema y usuario por defecto) corre en segundo plano:
+// si tarda o falla, la API igual responde y el motivo queda en los logs.
+prepareDatabase().catch((error) => {
+  console.error('Error preparando la base de datos:', error.message);
 });

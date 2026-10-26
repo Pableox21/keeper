@@ -6,6 +6,7 @@ import { FormField } from '../molecules';
 import { fetchAlmacenes, crearAlmacen, editarAlmacen, eliminarAlmacen, fetchOpcionesAlmacen } from '../../api/almacenes';
 import EventBus from '../../utils/EventBus';
 
+import { phoneChars } from '../../utils/fieldRules';
 function Warehouses() {
     const [alert, setAlert] = useState({ open: false, type: 'info', message: '' });
     const [warehouses, setWarehouses] = useState([]);
@@ -266,7 +267,7 @@ function Warehouses() {
                             <FormField label="Teléfono" layout="side" labelClassName="w-20">
                                 <Input 
                                     value={form.telefono} 
-                                    onChange={e => handleChange('telefono', e.target.value)} 
+                                    onChange={e => handleChange('telefono', phoneChars(e.target.value))} 
                                     placeholder="Número de teléfono"
                                 />
                             </FormField>

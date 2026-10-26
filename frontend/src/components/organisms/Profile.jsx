@@ -4,14 +4,13 @@ import { fetchMiPerfil } from '../../api/usuarios';
 const ROLE_LABELS = {
     ADMIN: 'Administrador',
     ALMACEN: 'Almacén',
-    SUPERVISOR: 'Supervisor',
-    USUARIO: 'Usuario',
-    SOLO_LECTURA: 'Solo lectura'
+    ATENCION_CLIENTE: 'Atención al cliente'
 };
 
 const ROLE_DESCRIPTIONS = {
     ADMIN: 'Control total del sistema, incluida la gestión de usuarios.',
-    ALMACEN: 'Acceso al área de Inventarios.'
+    ALMACEN: 'Gestión de inventario, compras, traspasos, salidas y configuraciones. Sin acceso a Clientes ni Usuarios.',
+    ATENCION_CLIENTE: 'Acceso al área de Clientes.'
 };
 
 const ESTADO_LABELS = {

@@ -1,6 +1,8 @@
 const { pool } = require('../config/db');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const { DEFAULT_USER } = require('../config/defaultUser');
+const { Validator, USERNAME_REGEX } = require('../utils/validator');
 
 const INACTIVITY_MINUTES = Number(process.env.SESSION_INACTIVITY_MINUTES || 180);
 
@@ -66,27 +68,35 @@ exports.logout = async (req, res) => {
 
 
 //////////////////////////////////////// HELPERS USUARIOS ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-const ROLES = ['ADMIN', 'ALMACEN', 'SUPERVISOR', 'USUARIO', 'SOLO_LECTURA'];
+const ROLES = ['ADMIN', 'ALMACEN', 'ATENCION_CLIENTE'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
+const MAX_PASSWORD_LENGTH = 72; // bcrypt solo considera los primeros 72 caracteres
 
 // Valida y normaliza los datos. Devuelve { data } o { error }.
 function validateUserData({ username, email, password, nombre_completo, rol }) {
-    if (!username || !email || !password) {
-        return { error: 'username, email y password requeridos' };
+    const v = new Validator();
+
+    username = v.text(username, 'El usuario', {
+        required: true, min: 3, max: 50,
+        pattern: USERNAME_REGEX,
+        patternMessage: 'solo puede contener letras, números y los signos . _ - (sin espacios)'
+    });
+    email = v.email(email, 'El email', { required: true });
+    nombre_completo = v.name(nombre_completo, 'El nombre completo');
+
+    if (typeof password !== 'string' || password === '') {
+        v.fail('La contraseña es requerida');
+    } else if (password.length < MIN_PASSWORD_LENGTH) {
+        v.fail(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
+    } else if (password.length > MAX_PASSWORD_LENGTH) {
+        v.fail(`La contraseña no puede superar los ${MAX_PASSWORD_LENGTH} caracteres`);
     }
-    username = String(username).trim();
-    email = String(email).trim().toLowerCase();
-    password = String(password);
 
-    if (username.length < 3 || username.length > 50) return { error: 'El username debe tener entre 3 y 50 caracteres' };
-    if (!EMAIL_REGEX.test(email)) return { error: 'Email inválido' };
-    if (password.length < MIN_PASSWORD_LENGTH) return { error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres` };
+    rol = v.oneOf(rol, 'El rol', ROLES, { required: true });
 
-    rol = String(rol || 'USUARIO').toUpperCase();
-    if (!ROLES.includes(rol)) return { error: 'Rol inválido' };
-
-    return { data: { username, email, password, nombre_completo: nombre_completo || null, rol } };
+    if (v.error) return { error: v.error };
+    return { data: { username, email, password, nombre_completo, rol } };
 }
 
 // Inserta el usuario (verifica duplicados y hashea la contraseña).
@@ -108,28 +118,6 @@ exports.createUser = async (req, res) => {
     let conn;
     try {
         const { error, data } = validateUserData(req.body);
-        if (error) return res.status(400).json({ error });
-
-        conn = await pool.getConnection();
-        const { error: insertError, user } = await insertUser(conn, data);
-        if (insertError) return res.status(400).json({ error: insertError });
-
-        res.status(201).json(user);
-    } catch (err) {
-        if (err.errno === 1062) return res.status(400).json({ error: 'username o email ya registrado' });
-        res.status(500).json({ error: err.message });
-    } finally {
-        if (conn) conn.release();
-    }
-};
-
-
-//////////////////////////////////////// REGISTRAR USUARIO (público, siempre rol USUARIO) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-exports.register = async (req, res) => {
-    let conn;
-    try {
-        // Se ignora cualquier "rol" enviado: un registro público nunca puede crear admins.
-        const { error, data } = validateUserData({ ...req.body, rol: 'USUARIO' });
         if (error) return res.status(400).json({ error });
 
         conn = await pool.getConnection();
@@ -168,20 +156,31 @@ exports.listUsers = async (req, res) => {
 //////////////////////////////////////// EDITAR USUARIO (solo ADMIN) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // La contraseña es opcional: si viene vacía no se modifica.
 function validateUserUpdate({ username, email, password, nombre_completo, rol }) {
-    if (!username || !email || !rol) return { error: 'username, email y rol requeridos' };
+    const v = new Validator();
 
-    username = String(username).trim();
-    email = String(email).trim().toLowerCase();
-    rol = String(rol).toUpperCase();
+    username = v.text(username, 'El usuario', {
+        required: true, min: 3, max: 50,
+        pattern: USERNAME_REGEX,
+        patternMessage: 'solo puede contener letras, números y los signos . _ - (sin espacios)'
+    });
+    email = v.email(email, 'El email', { required: true });
+    nombre_completo = v.name(nombre_completo, 'El nombre completo');
+    rol = v.oneOf(rol, 'El rol', ROLES, { required: true });
 
-    if (username.length < 3 || username.length > 50) return { error: 'El username debe tener entre 3 y 50 caracteres' };
-    if (!EMAIL_REGEX.test(email)) return { error: 'Email inválido' };
-    if (!ROLES.includes(rol)) return { error: 'Rol inválido' };
-    if (password && String(password).length < MIN_PASSWORD_LENGTH) {
-        return { error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres` };
+    if (password !== undefined && password !== null && password !== '') {
+        if (typeof password !== 'string') {
+            v.fail('La contraseña no es válida');
+        } else if (password.length < MIN_PASSWORD_LENGTH) {
+            v.fail(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
+        } else if (password.length > MAX_PASSWORD_LENGTH) {
+            v.fail(`La contraseña no puede superar los ${MAX_PASSWORD_LENGTH} caracteres`);
+        }
+    } else {
+        password = null;
     }
 
-    return { data: { username, email, password: password ? String(password) : null, nombre_completo: nombre_completo || null, rol } };
+    if (v.error) return { error: v.error };
+    return { data: { username, email, password, nombre_completo, rol } };
 }
 
 exports.updateUser = async (req, res) => {
@@ -280,6 +279,51 @@ exports.getProfile = async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
 
         res.json({ ...rows[0], id: Number(rows[0].id) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        if (conn) conn.release();
+    }
+};
+
+
+//////////////////////////////////////// ELIMINAR USUARIO (solo ADMIN) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+exports.deleteUser = async (req, res) => {
+    let conn;
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'Id inválido' });
+
+        if (Number(req.user.id) === id) {
+            return res.status(400).json({ error: 'No puedes eliminar tu propio usuario' });
+        }
+
+        conn = await pool.getConnection();
+
+        const rows = await conn.query('SELECT id, username FROM usuario WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        // El usuario por defecto se vuelve a crear al iniciar el sistema, así que no tiene sentido borrarlo
+        if (rows[0].username === DEFAULT_USER.username) {
+            return res.status(400).json({
+                error: 'El usuario por defecto no se puede eliminar (se vuelve a crear al iniciar el sistema). Puedes deshabilitarlo.'
+            });
+        }
+
+        try {
+            // Sus sesiones se eliminan solas (ON DELETE CASCADE)
+            await conn.query('DELETE FROM usuario WHERE id = ?', [id]);
+        } catch (err) {
+            // 1451: el usuario figura como responsable en ingresos, salidas, traspasos u otros registros
+            if (err.errno === 1451) {
+                return res.status(409).json({
+                    error: 'No se puede eliminar el usuario porque tiene registros asociados (ingresos, salidas, traspasos u otros). Deshabilítalo en su lugar.'
+                });
+            }
+            throw err;
+        }
+
+        res.json({ id, eliminado: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     } finally {

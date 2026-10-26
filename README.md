@@ -85,20 +85,20 @@ Al arrancar, el backend crea el usuario por defecto si todavía no existe.
 | Rol | Acceso |
 |-----|--------|
 | `ADMIN` | Control total del sistema, incluida la gestión de usuarios |
-| `ALMACEN` | Solo el área de **Inventarios** (Inventario Inicial e Inventario) |
-| `SUPERVISOR`, `USUARIO`, `SOLO_LECTURA` | Solo lectura en el backend; el menú aún no está restringido |
+| `ALMACEN` | Todas las pantallas de inventario (compras, traspasos, salidas, inventario, productos, unidades, proveedores, almacenes), con creación, edición y borrado. **Sin acceso a Clientes ni a Usuarios** |
+| `ATENCION_CLIENTE` | Solo el área de **Clientes** |
 
 Detalle del rol `ALMACEN`:
 
-- **Puede:** consultar inventario, almacenes, productos y catálogos; crear y editar ingresos (los usa Inventario Inicial).
-- **No puede:** compras, traspasos, salidas, proveedores, configuraciones ni borrados. El backend responde `403 Permiso denegado` y el menú no muestra esas opciones.
-- Las altas, ediciones y bajas de productos, almacenes, catálogos (categorías, marcas, líneas, unidades, empresas) y proveedores son solo para `ADMIN`.
+- **Puede:** consultar y escribir (crear, editar, eliminar) en ingresos, compras, traspasos, salidas a producción, inventario, productos, unidades de medida, proveedores y almacenes.
+- **No puede:** abrir Clientes ni gestionar Usuarios. El backend responde `403 Permiso denegado` y el menú no muestra esas opciones.
+- La creación, edición, deshabilitación y borrado de usuarios es exclusiva de `ADMIN`.
 
 Los permisos se aplican en dos lugares:
 - **Backend:** `backend/src/routes/*.js` con `requireRole(...)` y `denyRoles(...)` de `middleware/authMiddleware.js`.
 - **Frontend (menú):** `frontend/src/config/permissions.js`.
 
-> Compras e Inventario Inicial comparten el endpoint `/api/ingresos`, por lo que el backend no los distingue: un usuario `ALMACEN` podría crear un ingreso de compra por API aunque no vea esa pantalla.
+> Compras e Inventario Inicial comparten el endpoint `/api/ingresos`, por lo que un usuario `ALMACEN` escribe ingresos de compra desde Inventario Inicial con los mismos permisos que en la pantalla de Compras.
 
 ## Gestión de clientes
 
@@ -117,11 +117,42 @@ La opción **Clientes** del menú lateral abre la pantalla de gestión de client
 
 Desde la pantalla se puede **crear**, **editar**, **activar / desactivar** y **eliminar** clientes, y buscar por contrato, nombre, CI, celular, zona o plan. Eliminar es definitivo y pide confirmación; para conservar el historial de un cliente conviene desactivarlo en lugar de eliminarlo.
 
-Permisos: los usuarios con rol `ADMIN` pueden crear, editar, cambiar el estado y eliminar; el resto de roles solo consulta la lista. El rol `ALMACEN` no tiene acceso a este módulo.
+Permisos: los usuarios con rol `ADMIN` o `ATENCION_CLIENTE` pueden crear, editar, cambiar el estado y eliminar; el rol `ALMACEN` no tiene acceso a este módulo.
 
 ## Perfil de usuario
 
 Cualquier usuario (de cualquier rol) puede abrir su perfil desde el avatar de la esquina superior derecha, en la opción **Perfil**. Se abre la pestaña **Mi perfil** con sus datos: nombre completo, email, teléfono, CI, departamento, usuario, rol, estado, fecha de alta y última actividad.
+
+## Validaciones de campos
+
+Todos los formularios validan los datos en **dos lugares**: en el navegador (los caracteres no permitidos simplemente no se pueden escribir) y en el servidor (que vuelve a validar y responde con un mensaje claro, así no se pueden saltar usando la API directamente).
+
+| Campo | Regla |
+|-------|-------|
+| Nombres de persona (usuario, cliente) | Solo letras (con tildes y ñ), espacios y `. ' -`; mínimo 3 caracteres. Sin números ni símbolos |
+| Usuario (login) | 3 a 50 caracteres: letras, números y `. _ -`, sin espacios |
+| Contraseña | De 6 a 72 caracteres |
+| Email | Formato válido (`nombre@dominio.com`), máximo 255 caracteres |
+| Celular de cliente | 8 dígitos que empiecen con 6 o 7 |
+| Teléfonos (proveedores, almacenes) | 7 u 8 dígitos; se aceptan espacios, guiones, paréntesis y el prefijo `+591` |
+| CI y NIT | Solo dígitos (CI de 5 a 10; NIT de 5 a 20) |
+| Códigos (producto, proveedor, almacén) | Letras, números, espacios y `. , _ - / # ( ) + : %`; máximo 50 |
+| Números de contrato | Letras, números y `. / -`; máximo 30 |
+| Stock mínimo / máximo | Enteros mayores o iguales a 0; el máximo no puede ser menor al mínimo |
+| Cantidades (ingresos, traspasos, salidas) | Enteros positivos; los ingresos admiten líneas en 0 si hay al menos una con cantidad |
+| Precios | Mayores o iguales a 0, con 2 decimales (se redondean) |
+| Fechas y horas | Fecha válida `AAAA-MM-DD` (no futura) y hora `HH:MM` |
+| Estados, tipos y roles | Solo los valores permitidos de cada lista |
+| Textos | Sin caracteres de control y con el largo máximo de cada columna de la base de datos |
+
+Reglas adicionales:
+- **Ingresos (compras):** el servidor calcula siempre el total a partir del detalle.
+- **Traspasos y salidas:** el origen y el destino no pueden ser el mismo, y un producto no puede repetirse en el detalle (juntar las cantidades en una sola línea).
+- **Ids de la URL:** deben ser enteros positivos.
+
+Dónde está el código:
+- Backend: `backend/src/utils/validator.js` (reglas reutilizables) y `backend/src/middleware/validate.js` (validación por módulo, conectada en `backend/src/routes/*.js`).
+- Frontend: `frontend/src/utils/fieldRules.js` (restricciones al escribir).
 
 ## Gestión de usuarios
 
@@ -130,10 +161,13 @@ Desde el menú lateral, la opción **Usuarios** (visible solo para `ADMIN`) abre
 - **Crear** un usuario eligiendo su rol.
 - **Editar** usuario, nombre, email y rol. La contraseña es opcional: si se deja vacía no cambia.
 - **Deshabilitar / Habilitar** un usuario. Al deshabilitarlo se cierran sus sesiones abiertas y ya no puede iniciar sesión.
+- **Eliminar** un usuario de forma definitiva (pide confirmación).
 
 Reglas de seguridad:
 - Un administrador no puede deshabilitarse a sí mismo ni cambiar su propio rol, para no dejar el sistema sin administrador.
 - Al cambiar la contraseña de un usuario se cierran sus sesiones abiertas.
+- Un administrador no puede eliminarse a sí mismo, y el usuario por defecto no se puede eliminar (se vuelve a crear al iniciar el sistema).
+- Un usuario que ya figura como responsable en ingresos, salidas o traspasos no se puede eliminar: el sistema avisa y conviene **deshabilitarlo** en su lugar.
 
 ## API de autenticación
 
@@ -141,14 +175,16 @@ Reglas de seguridad:
 |--------|------|--------|-------------|
 | POST | `/api/auth/login` | Público | Inicia sesión y devuelve el token |
 | POST | `/api/auth/logout` | Sesión | Cierra la sesión |
-| POST | `/api/auth/register` | Público | Registro de usuario (siempre con rol `USUARIO`, máx. 10 intentos cada 15 min) |
 | GET | `/api/auth/me` | Sesión | Devuelve los datos del perfil del usuario con sesión iniciada |
 | GET | `/api/auth/users` | `ADMIN` | Lista todos los usuarios |
-| POST | `/api/auth/users` | `ADMIN` | Crea un usuario eligiendo el rol |
+| POST | `/api/auth/users` | `ADMIN` | Crea un usuario eligiendo el rol (obligatorio: `ADMIN`, `ALMACEN` o `ATENCION_CLIENTE`) |
 | PUT | `/api/auth/users/:id` | `ADMIN` | Edita usuario, email, nombre, rol y, opcionalmente, la contraseña |
 | PATCH | `/api/auth/users/:id/estado` | `ADMIN` | Habilita (`ACTIVO`) o deshabilita (`INACTIVO`) un usuario |
+| DELETE | `/api/auth/users/:id` | `ADMIN` | Elimina definitivamente un usuario |
 
 Las rutas protegidas reciben el token en la cabecera `Authorization: Bearer <token>`.
+
+No hay registro público: las cuentas nuevas solo las crea un `ADMIN` desde la pantalla **Usuarios**.
 
 ### Iniciar sesión
 
@@ -174,21 +210,36 @@ Validaciones: `username` de 3 a 50 caracteres, email válido, contraseña de al 
 | Método | Ruta | Acceso | Descripción |
 |--------|------|--------|-------------|
 | GET | `/api/clientes` | Sesión (excepto `ALMACEN`) | Lista los clientes |
-| POST | `/api/clientes` | `ADMIN` | Crea un cliente |
-| PUT | `/api/clientes/:id` | `ADMIN` | Edita un cliente |
-| PATCH | `/api/clientes/:id/estado` | `ADMIN` | Activa (`ACTIVO`) o desactiva (`INACTIVO`) un cliente |
-| DELETE | `/api/clientes/:id` | `ADMIN` | Elimina definitivamente un cliente |
+| POST | `/api/clientes` | `ADMIN`, `ATENCION_CLIENTE` | Crea un cliente |
+| PUT | `/api/clientes/:id` | `ADMIN`, `ATENCION_CLIENTE` | Edita un cliente |
+| PATCH | `/api/clientes/:id/estado` | `ADMIN`, `ATENCION_CLIENTE` | Activa (`ACTIVO`) o desactiva (`INACTIVO`) un cliente |
+| DELETE | `/api/clientes/:id` | `ADMIN`, `ATENCION_CLIENTE` | Elimina definitivamente un cliente |
 
 ## Base de datos
 
-Las migraciones están en `database/migrations/` y se aplican en orden numérico. Con una base nueva, Docker carga `007_productos_update.sql`, `008_rol_almacen.sql` y `009_clientes.sql` automáticamente.
+Las migraciones están en `database/migrations/` y se aplican en orden numérico. Con una base nueva, Docker carga `007_productos_update.sql` y después `008_rol_almacen.sql`, `009_clientes.sql`, `010_rol_atencion_cliente.sql` y `011_roles_tres_almacen.sql` automáticamente.
 
-Si ya tienes una base creada, aplica estas migraciones una sola vez (rol `ALMACEN` y tabla de clientes):
+Al arrancar, el backend aplica solo los cambios de esquema que necesita (`backend/src/config/ensureSchema.js`): deja la restricción de roles de `usuario` en `ADMIN`, `ALMACEN` y `ATENCION_CLIENTE` (las cuentas con roles retirados pasan a `ALMACEN` y quedan `INACTIVO`) y crea la tabla `cliente_internet`. Es seguro repetirlo: si ya están aplicados, no hace nada. Por eso, en una base existente basta con reconstruir y reiniciar:
 
 ```bash
-docker exec -i keeper-db sh -c 'mariadb -uroot -p"$DB_ROOT_PASSWORD"' < database/migrations/008_rol_almacen.sql
-docker exec -i keeper-db sh -c 'mariadb -uroot -p"$DB_ROOT_PASSWORD"' < database/migrations/009_clientes.sql
+docker compose up --build
 ```
+
+Si prefieres aplicar las migraciones a mano, la contraseña de root dentro del contenedor está en `MARIADB_ROOT_PASSWORD`:
+
+```bash
+# Linux, macOS o Git Bash
+docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"' < database/migrations/008_rol_almacen.sql
+docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"' < database/migrations/009_clientes.sql
+```
+
+```powershell
+# PowerShell
+Get-Content database/migrations/008_rol_almacen.sql -Raw | docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'
+Get-Content database/migrations/009_clientes.sql -Raw | docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"'
+```
+
+> La tabla `cliente` del esquema original es distinta y la usa una llave foránea, por eso el módulo de clientes usa la tabla nueva `cliente_internet`.
 
 ## Desarrollo sin Docker
 

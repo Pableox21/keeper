@@ -277,7 +277,7 @@ function Clients() {
                             <FormField className="col-span-2" label="N° contrato" layout="side" required>
                                 <Input
                                     value={form.numero_contrato}
-                                    onChange={e => handleChange('numero_contrato', e.target.value)}
+                                    onChange={e => handleChange('numero_contrato', e.target.value.replace(/[^A-Za-z0-9./-]/g, '').slice(0, 30))}
                                     placeholder="Ej: 00123"
                                     maxLength={30}
                                 />

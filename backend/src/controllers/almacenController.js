@@ -4,17 +4,7 @@ const { handleBigInt } = require('../utils/bigIntHandler');
 
 /--------------------Obtener personal tecnico de Optiweb-----------------------------------------------------------------------------------/
 exports.getPersonalTecnico = async (req, res) => {
-    
-    let conn;
     try {
-        if (!poolOptiweb || typeof poolOptiweb.getConnection !== 'function') {
-            return res.status(500).json({ 
-                error: 'poolOptiweb no está configurado correctamente' 
-            });
-        }
-
-        conn = await poolOptiweb.getConnection();
-        
         const query = `
             SELECT 
                 CODIGO as id,
@@ -29,26 +19,20 @@ exports.getPersonalTecnico = async (req, res) => {
             AND ESTADO = 'ACTIVO'
             ORDER BY nombre_completo
         `;
-        
-        const personal = await conn.query(query);
-        
+
+        const personal = await poolOptiweb.query(query);
         res.json(handleBigInt(personal));
-        
+
     } catch (error) {
-        console.error('Error al obtener personal técnico:', error);
-        res.status(500).json({ 
-            error: 'Error al conectar con la base de datos de personal técnico',
-            details: error.message 
-        });
-    } finally {
-        if (conn) conn.release();
+        // Optiweb es una base externa: sin ella no hay técnicos que listar, se responde una lista vacía
+        console.warn('Optiweb no disponible: personal tecnico:', error.message);
+        res.json([]);
     }
 };
 
 
 /--------------------Obtener-Listar todos los almacenes--------------------------------------------------------------------------------------/
 exports.getAllAlmacenes = async (req, res) => {
-    let connOptiweb;
     try {
         const queryAlmacenes = `
             SELECT 
@@ -67,24 +51,28 @@ exports.getAllAlmacenes = async (req, res) => {
         `;
         const almacenes = await pool.query(queryAlmacenes);
 
-        connOptiweb = await poolOptiweb.getConnection();
-        const queryPersonal = `
-            SELECT 
-                CODIGO as id,
-                CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo
-            FROM personal
-        `;
-        const personal = await connOptiweb.query(queryPersonal);
-        
+        // El nombre del técnico vive en Optiweb (base de datos externa). Si no está a mano, los
+        // almacenes se devuelven igualmente con ese dato en null en lugar de fallar la consulta.
         const personalMap = {};
-        personal.forEach(p => {
-            personalMap[p.id] = p.nombre_completo;
-        });
+        try {
+            const personal = await poolOptiweb.query(`
+                SELECT 
+                    CODIGO as id,
+                    CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo
+                FROM personal
+            `);
+            personal.forEach((p) => {
+                personalMap[p.id] = p.nombre_completo;
+            });
+        } catch (error) {
+            console.warn('Optiweb no disponible: almacenes sin nombre de tecnico:', error.message);
+        }
 
-        const almacenesConTecnico = almacenes.map(almacen => ({
+        const almacenesConTecnico = almacenes.map((almacen) => ({
             ...almacen,
-            tecnico_optiweb_nombre: almacen.id_tecnico_optiweb ? 
-                personalMap[almacen.id_tecnico_optiweb] : null
+            tecnico_optiweb_nombre: almacen.id_tecnico_optiweb
+                ? personalMap[almacen.id_tecnico_optiweb] ?? null
+                : null
         }));
 
         res.json(handleBigInt(almacenesConTecnico));
@@ -92,8 +80,6 @@ exports.getAllAlmacenes = async (req, res) => {
     } catch (error) {
         console.error('Error en getAllAlmacenes:', error);
         res.status(500).json({ error: error.message });
-    } finally {
-        if (connOptiweb) connOptiweb.release();
     }
 };
 
@@ -109,27 +95,39 @@ exports.getAlmacenById = async (req, res) => {
                 ci.codigo as cuenta_contable_codigo,
                 ci.nombre as cuenta_contable_nombre,
                 u.username as responsable_nombre,
-                cc.nombre as centro_costo_nombre,
-                pt.nombre_completo as tecnico_optiweb_nombre
+                cc.nombre as centro_costo_nombre
             FROM almacen a
             LEFT JOIN tipo_almacen ta ON a.id_tipo = ta.id
             LEFT JOIN cuenta_inventario ci ON a.id_cuenta_contable = ci.id
             LEFT JOIN usuario u ON a.id_responsable = u.id
             LEFT JOIN centro_costo cc ON a.id_centro_costo = cc.id
-            LEFT JOIN (
-                SELECT 
-                    CODIGO as id,
-                    CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo
-                FROM optiweb.personal
-            ) pt ON a.id_tecnico_optiweb = pt.id
             WHERE a.id = ?
         `;
         const almacen = await pool.query(query, [id]);
         if (almacen.length === 0) {
             return res.status(404).json({ error: 'Almacén no encontrado' });
         }
-        res.json(handleBigInt(almacen[0]));
+
+        // Misma política que getAllAlmacenes: el nombre del técnico vive en Optiweb y, si la base
+        // externa no está a mano, el almacén se devuelve con ese dato en null.
+        let tecnicoOptiwebNombre = null;
+        if (almacen[0].id_tecnico_optiweb) {
+            try {
+                const personal = await poolOptiweb.query(
+                    `SELECT CODIGO as id, CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo
+                     FROM personal
+                     WHERE CODIGO = ?`,
+                    [almacen[0].id_tecnico_optiweb]
+                );
+                tecnicoOptiwebNombre = personal.length > 0 ? personal[0].nombre_completo : null;
+            } catch (error) {
+                console.warn('Optiweb no disponible: almacen sin nombre de tecnico:', error.message);
+            }
+        }
+
+        res.json(handleBigInt({ ...almacen[0], tecnico_optiweb_nombre: tecnicoOptiwebNombre }));
     } catch (error) {
+        console.error('Error en getAlmacenById:', error);
         res.status(500).json({ error: error.message });
     }
 };

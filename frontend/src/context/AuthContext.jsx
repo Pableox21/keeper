@@ -58,17 +58,6 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Registro público (no requiere sesión, rol USUARIO)
-    const register = async (userData) => {
-        try {
-            const response = await authAPI.register(userData);
-            return { success: true, data: response };
-        } catch (error) {
-            console.error('Error en registro:', error);
-            return { success: false, error: error.message };
-        }
-    };
-
     // Crear usuario desde el panel (requiere sesión ADMIN)
     const createUser = async (userData) => {
         try {
@@ -102,7 +91,6 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         logout,
-        register,
         createUser,
         isAuthenticated,
         hasRole,

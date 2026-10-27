@@ -33,7 +33,7 @@ keeper/
 │   ├── migrations/     migraciones numeradas
 │   └── externa/        segunda base (técnicos, OLTS y contratos)
 ├── docker-compose.yml
-└── .env                variables de entorno (no debería estar en git: hoy está versionada)
+└── .env                variables de entorno (fuera de git; plantilla en .env.example)
 ```
 
 ## Puesta en marcha
@@ -42,7 +42,7 @@ keeper/
 - Docker y Docker Compose
 
 ### Pasos
-1. Crea el archivo `.env` en la raíz (ver [Variables de entorno](#variables-de-entorno)).
+1. Copia `.env.example` a `.env` y completa las contraseñas (`cp .env.example .env`).
 2. Levanta los servicios:
    ```bash
    docker compose up --build
@@ -252,7 +252,7 @@ Para no depender de una red interna, `database/externa/empresa_externa.sql` crea
 docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"' < database/externa/empresa_externa.sql
 ```
 
-Con eso, `.env` ya apunta ahí (`DB_EXTERNA_HOST=mariadb`, `DB_EXTERNA_NAME=empresa_externa`, `DB_EXTERNA_USER=externa_user`). El script es idempotente: repetirno lo deja igual.
+Con eso, en `.env` basta `DB_EXTERNA_HOST=mariadb`, `DB_EXTERNA_NAME=empresa_externa`, `DB_EXTERNA_USER=externa_user` y `DB_EXTERNA_PASSWORD=externa123` (esa contraseña la fija el propio script y es solo para desarrollo local). El script es idempotente: repetirlo lo deja igual.
 
 Para conectar una base externa de verdad, cambia solo `DB_EXTERNA_*` en `.env` y reinicia el backend (`docker compose up -d backend`). Fíjate en dos filtros que dependen de los datos de cada empresa: `CARGO IN ('SOPORTE TECNICO','INSTALADOR','REDES')` en `backend/src/controllers/almacenController.js` y `codigo LIKE 'ATT-%'` en `backend/src/controllers/salidasController.js`. Si la base externa no está a mano, esas pantallas siguen funcionando con sus datos locales: los combos salen vacíos y el log del backend avisa `Base externa no disponible`.
 
@@ -270,6 +270,6 @@ Necesitas una instancia de MariaDB con la base cargada y las variables de entorn
 
 ## Seguridad
 
-- Saca el `.env` del repositorio (`git rm --cached .env` + `.gitignore` + un `.env.example`) y rota sus credenciales: hoy está versionado y publicado, incluidas la contraseña de Optiweb que estuvo en `DB_OPTIMUS_*` hasta el commit `fa4cfa5`.
+- El `.env` está fuera del repositorio (ver `.gitignore`); la plantilla es `.env.example`. Aun así, los commits hasta `2174872` lo incluyeron, así que las credenciales que estaban ahí —la contraseña de la red interna en `DB_OPTIMUS_PASSWORD` y las de `keeper_user`/root— siguen visibles en el historial y hay que rotarlas. Borrarlas del historial requiere reescribirlo (`git filter-repo`) y un force-push coordinado.
 - Cambia las credenciales por defecto en producción.
 - Mantén `VITE_API_URL` apuntando al backend correcto en cada entorno.

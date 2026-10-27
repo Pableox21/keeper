@@ -1,8 +1,8 @@
-const { pool, poolOptiweb } = require('../config/db');
+const { pool, poolExterna } = require('../config/db');
 const { handleBigInt } = require('../utils/bigIntHandler');
 
 
-/--------------------Obtener personal tecnico de Optiweb-----------------------------------------------------------------------------------/
+/--------------------Obtener personal tecnico de la base externa-----------------------------------------------------------------------------------/
 exports.getPersonalTecnico = async (req, res) => {
     try {
         const query = `
@@ -20,12 +20,12 @@ exports.getPersonalTecnico = async (req, res) => {
             ORDER BY nombre_completo
         `;
 
-        const personal = await poolOptiweb.query(query);
+        const personal = await poolExterna.query(query);
         res.json(handleBigInt(personal));
 
     } catch (error) {
-        // Optiweb es una base externa: sin ella no hay técnicos que listar, se responde una lista vacía
-        console.warn('Optiweb no disponible: personal tecnico:', error.message);
+        // La base externa no está a mano: sin ella no hay técnicos que listar, se responde una lista vacía
+        console.warn('Base externa no disponible: personal tecnico:', error.message);
         res.json([]);
     }
 };
@@ -51,11 +51,11 @@ exports.getAllAlmacenes = async (req, res) => {
         `;
         const almacenes = await pool.query(queryAlmacenes);
 
-        // El nombre del técnico vive en Optiweb (base de datos externa). Si no está a mano, los
+        // El nombre del técnico vive en la base externa. Si no está a mano, los
         // almacenes se devuelven igualmente con ese dato en null en lugar de fallar la consulta.
         const personalMap = {};
         try {
-            const personal = await poolOptiweb.query(`
+            const personal = await poolExterna.query(`
                 SELECT 
                     CODIGO as id,
                     CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo
@@ -65,7 +65,7 @@ exports.getAllAlmacenes = async (req, res) => {
                 personalMap[p.id] = p.nombre_completo;
             });
         } catch (error) {
-            console.warn('Optiweb no disponible: almacenes sin nombre de tecnico:', error.message);
+            console.warn('Base externa no disponible: almacenes sin nombre de tecnico:', error.message);
         }
 
         const almacenesConTecnico = almacenes.map((almacen) => ({
@@ -108,24 +108,24 @@ exports.getAlmacenById = async (req, res) => {
             return res.status(404).json({ error: 'Almacén no encontrado' });
         }
 
-        // Misma política que getAllAlmacenes: el nombre del técnico vive en Optiweb y, si la base
-        // externa no está a mano, el almacén se devuelve con ese dato en null.
-        let tecnicoOptiwebNombre = null;
+        // Misma política que getAllAlmacenes: el nombre del técnico vive en la base externa y, si esa
+        // base no está a mano, el almacén se devuelve con ese dato en null.
+        let nombreTecnicoExterno = null;
         if (almacen[0].id_tecnico_optiweb) {
             try {
-                const personal = await poolOptiweb.query(
+                const personal = await poolExterna.query(
                     `SELECT CODIGO as id, CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo
                      FROM personal
                      WHERE CODIGO = ?`,
                     [almacen[0].id_tecnico_optiweb]
                 );
-                tecnicoOptiwebNombre = personal.length > 0 ? personal[0].nombre_completo : null;
+                nombreTecnicoExterno = personal.length > 0 ? personal[0].nombre_completo : null;
             } catch (error) {
-                console.warn('Optiweb no disponible: almacen sin nombre de tecnico:', error.message);
+                console.warn('Base externa no disponible: almacen sin nombre de tecnico:', error.message);
             }
         }
 
-        res.json(handleBigInt({ ...almacen[0], tecnico_optiweb_nombre: tecnicoOptiwebNombre }));
+        res.json(handleBigInt({ ...almacen[0], tecnico_optiweb_nombre: nombreTecnicoExterno }));
     } catch (error) {
         console.error('Error en getAlmacenById:', error);
         res.status(500).json({ error: error.message });
@@ -209,7 +209,7 @@ exports.createAlmacen = async (req, res) => {
 
         if (es_tecnico && !id_tecnico_optiweb) {
             return res.status(400).json({ 
-                error: 'Para almacenes técnicos debe seleccionar un técnico de Optiweb' 
+                error: 'Para almacenes técnicos debe seleccionar un técnico de la base externa' 
             });
         }
 
@@ -378,8 +378,8 @@ exports.getOpcionesAlmacen = async (req, res) => {
 
         let personalTecnico = [];
         try {
-            if (poolOptiweb && typeof poolOptiweb.getConnection === 'function') {
-                const conn = await poolOptiweb.getConnection();
+            if (poolExterna && typeof poolExterna.getConnection === 'function') {
+                const conn = await poolExterna.getConnection();
                 const query = `
                     SELECT 
                         CODIGO as id,

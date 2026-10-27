@@ -17,7 +17,7 @@ exports.buscarPersonal = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
-const { pool, poolOptiweb } = require('../config/db');
+const { pool, poolExterna } = require('../config/db');
 const { handleBigInt } = require('../utils/bigIntHandler');
 
 
@@ -45,14 +45,14 @@ exports.getOpcionesSalida = async (req, res) => {
             pool.query('SELECT id, codigo, nombre FROM departamento')
         ]);
 
-        // Optiweb es una base externa: si no está a mano, el formulario se arma igualmente con los
-        // datos locales y sus combos (OLTS y contratos internos) quedan vacíos.
+        // Los OLTS y los contratos internos viven en la base externa: si no está a mano, el formulario
+        // se arma igualmente con los datos locales y esos dos combos quedan vacíos.
         let olts = [];
         let clientes_internos = [];
         try {
             [olts, clientes_internos] = await Promise.all([
-                poolOptiweb.query('SELECT codigo as id, nombre as respuesta FROM olt'),
-                poolOptiweb.query(`
+                poolExterna.query('SELECT codigo as id, nombre as respuesta FROM olt'),
+                poolExterna.query(`
                     SELECT c.CODIGO as contrato, CONCAT(cl.NOMBRES, ' ', cl.APELLIDOS) as nombre_completo
                     FROM contratos c
                     INNER JOIN clientes cl ON c.COD_CLI = cl.CODIGO
@@ -69,7 +69,7 @@ exports.getOpcionesSalida = async (req, res) => {
                 `)
             ]);
         } catch (error) {
-            console.warn('Optiweb no disponible: opciones de salida sin OLTS ni contratos internos:', error.message);
+            console.warn('Base externa no disponible: opciones de salida sin OLTS ni contratos internos:', error.message);
         }
 
         const response = {

@@ -58,6 +58,7 @@ services:
       - ./database/migrations/010_rol_atencion_cliente.sql:/docker-entrypoint-initdb.d/04_rol_atencion_cliente.sql
       - ./database/migrations/011_roles_tres_almacen.sql:/docker-entrypoint-initdb.d/05_roles_tres_almacen.sql
       - ./database/migrations/012_traspaso_auditoria.sql:/docker-entrypoint-initdb.d/06_traspaso_auditoria.sql
+      - ./database/externa/empresa_externa.sql:/docker-entrypoint-initdb.d/07_empresa_externa.sql
     networks:
       - keeper-network
 

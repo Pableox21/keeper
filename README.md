@@ -30,9 +30,10 @@ keeper/
 │       └── pages/          Login y Dashboard
 ├── database/
 │   ├── schemas/        esquema completo
-│   └── migrations/     migraciones numeradas
+│   ├── migrations/     migraciones numeradas
+│   └── externa/        segunda base (técnicos, OLTS y contratos)
 ├── docker-compose.yml
-└── .env                variables de entorno (no subir a git)
+└── .env                variables de entorno (no debería estar en git: hoy está versionada)
 ```
 
 ## Puesta en marcha
@@ -62,7 +63,7 @@ Al arrancar, el backend crea el usuario por defecto si todavía no existe.
 |----------|-------------|
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Conexión a la base de datos principal |
 | `DB_ROOT_PASSWORD` | Contraseña root de MariaDB (la usa el contenedor) |
-| `DB_OPTIMUS_*` | Conexión a la base de datos secundaria (Optiweb) |
+| `DB_EXTERNA_*` | Conexión a la base de datos externa secundaria (técnicos, OLTS y contratos de otra empresa) |
 | `PORT` | Puerto interno del backend (por defecto `3000`) |
 | `SESSION_INACTIVITY_MINUTES` | Minutos de inactividad antes de cerrar la sesión (por defecto `180`) |
 | `DEFAULT_USER_USERNAME` | Usuario por defecto (`kepeer123`) |
@@ -217,7 +218,7 @@ Validaciones: `username` de 3 a 50 caracteres, email válido, contraseña de al 
 
 ## Base de datos
 
-Las migraciones están en `database/migrations/` y se aplican en orden numérico. Con una base nueva, Docker carga `007_productos_update.sql` y después `008_rol_almacen.sql`, `009_clientes.sql`, `010_rol_atencion_cliente.sql` y `011_roles_tres_almacen.sql` automáticamente.
+Las migraciones están en `database/migrations/` y se aplican en orden numérico. Con una base nueva, Docker carga `007_productos_update.sql` y después `008_rol_almacen.sql`, `009_clientes.sql`, `010_rol_atencion_cliente.sql`, `011_roles_tres_almacen.sql` y `012_traspaso_auditoria.sql` automáticamente.
 
 Al arrancar, el backend aplica solo los cambios de esquema que necesita (`backend/src/config/ensureSchema.js`): deja la restricción de roles de `usuario` en `ADMIN`, `ALMACEN` y `ATENCION_CLIENTE` (las cuentas con roles retirados pasan a `ALMACEN` y quedan `INACTIVO`) y crea la tabla `cliente_internet`. Es seguro repetirlo: si ya están aplicados, no hace nada. Por eso, en una base existente basta con reconstruir y reiniciar:
 
@@ -241,6 +242,20 @@ Get-Content database/migrations/009_clientes.sql -Raw | docker exec -i keeper-db
 
 > La tabla `cliente` del esquema original es distinta y la usa una llave foránea, por eso el módulo de clientes usa la tabla nueva `cliente_internet`.
 
+### La segunda base (técnicos, OLTS y contratos)
+
+El backend abre dos conexiones: `pool` (Keeper) y `poolExterna`, que lee los técnicos que pueden recibir un almacén, los OLTS y los contratos internos que aparecen en el formulario de salidas. Las tablas que usa son `personal`, `olt`, `contratos` y `clientes`, siempre de solo lectura.
+
+Para no depender de una red interna, `database/externa/empresa_externa.sql` crea esa segunda base **dentro del mismo contenedor MariaDB**: su propio esquema `empresa_externa`, esas cuatro tablas, datos de ejemplo y un usuario `externa_user` que solo tiene `SELECT` sobre ese esquema. Docker lo carga solo en una base nueva (está montado como `07_empresa_externa.sql`); en un volumen existente se aplica una vez:
+
+```bash
+docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"' < database/externa/empresa_externa.sql
+```
+
+Con eso, `.env` ya apunta ahí (`DB_EXTERNA_HOST=mariadb`, `DB_EXTERNA_NAME=empresa_externa`, `DB_EXTERNA_USER=externa_user`). El script es idempotente: repetirno lo deja igual.
+
+Para conectar una base externa de verdad, cambia solo `DB_EXTERNA_*` en `.env` y reinicia el backend (`docker compose up -d backend`). Fíjate en dos filtros que dependen de los datos de cada empresa: `CARGO IN ('SOPORTE TECNICO','INSTALADOR','REDES')` en `backend/src/controllers/almacenController.js` y `codigo LIKE 'ATT-%'` en `backend/src/controllers/salidasController.js`. Si la base externa no está a mano, esas pantallas siguen funcionando con sus datos locales: los combos salen vacíos y el log del backend avisa `Base externa no disponible`.
+
 ## Desarrollo sin Docker
 
 ```bash
@@ -255,6 +270,6 @@ Necesitas una instancia de MariaDB con la base cargada y las variables de entorn
 
 ## Seguridad
 
-- No subas el `.env` al repositorio.
+- Saca el `.env` del repositorio (`git rm --cached .env` + `.gitignore` + un `.env.example`) y rota sus credenciales: hoy está versionado y publicado, incluidas la contraseña de Optiweb que estuvo en `DB_OPTIMUS_*` hasta el commit `fa4cfa5`.
 - Cambia las credenciales por defecto en producción.
 - Mantén `VITE_API_URL` apuntando al backend correcto en cada entorno.

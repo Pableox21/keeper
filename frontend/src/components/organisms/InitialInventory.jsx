@@ -12,13 +12,21 @@ import { fetchEmpresas, crearEmpresa } from '../../api/empresas'
 import { fetchCategorias, crearCategoria } from '../../api/categorias'
 import { fetchLineas, crearLinea } from '../../api/lineas'
 import { fetchMarcas, crearMarca } from '../../api/marcas'
+import { fetchUnidadesMedida, buscarOCrearUnidadMedida } from '../../api/unidadesMedida'
+import { fetchProveedores } from '../../api/proveedores'
+import { fetchAlmacenes } from '../../api/almacenes'
+import { useAuth } from '../../hooks/useAuth'
 import EventBus from '../../utils/EventBus'
 
 function InitialInventory() {
+    const { user } = useAuth()
     const [alert, setAlert] = useState({ open: false, type: 'success', message: '' })
     const [items, setItems] = useState([])
     const [originalItems, setOriginalItems] = useState([])
     const [loading, setLoading] = useState(false)
+    const [proveedores, setProveedores] = useState([])
+    const [almacenes, setAlmacenes] = useState([])
+    const [destino, setDestino] = useState({ proveedorId: '', almacenId: '' })
     const [filters, setFilters] = useState({
         empresa: '',
         categoria: '',
@@ -70,6 +78,10 @@ function InitialInventory() {
                         }));
                         setItems(itemsMapeados);
                         setOriginalItems(itemsMapeados);
+                        setDestino({
+                            proveedorId: inventarioInicial.id_proveedor ? String(inventarioInicial.id_proveedor) : '',
+                            almacenId: inventarioInicial.id_almacen ? String(inventarioInicial.id_almacen) : ''
+                        });
                         setAlert({ open: true, type: 'success', message: 'Inventario inicial cargado correctamente.' });
                     }
                 }
@@ -86,6 +98,20 @@ function InitialInventory() {
         EventBus.addEventListener('INITIAL_INVENTORY_UPDATED', handler);
         return () => EventBus.removeEventListener('INITIAL_INVENTORY_UPDATED', handler);
     }, []);
+
+    // El ingreso de inventario inicial necesita un proveedor y un almacén reales: se eligen en la barra superior
+    useEffect(() => {
+        fetchProveedores()
+            .then(lista => setProveedores((lista || []).filter(p => Number(p.autorizado) === 1)))
+            .catch(() => setProveedores([]));
+        fetchAlmacenes()
+            .then(lista => setAlmacenes((lista || []).filter(a => a.estado === 'ACTIVO')))
+            .catch(() => setAlmacenes([]));
+    }, []);
+
+    const almacenPorDefecto = almacenes.find(a => Number(a.es_principal) === 1) || almacenes[0];
+    const proveedorEfectivo = destino.proveedorId || (proveedores[0] ? String(proveedores[0].id) : '');
+    const almacenEfectivo = destino.almacenId || (almacenPorDefecto ? String(almacenPorDefecto.id) : '');
 
     // Opciones únicas para cada filtro
     const empresaOptions = [
@@ -167,20 +193,21 @@ function InitialInventory() {
     }
 
     const buscarOCrearEntidad = async (nombre, fetchFn, crearFn) => {
-        if (!nombre) return 1;
-        
+        if (!nombre) return null;
+
         try {
             const entidades = await fetchFn();
             let entidad = entidades.find(e => e.nombre.toLowerCase() === nombre.toLowerCase());
-            
+
             if (!entidad) {
                 entidad = await crearFn(nombre);
             }
-            
+
             return entidad.id;
         } catch (error) {
+            // Sin id no se inventa uno: el backend responde 400 explicando qué falta
             console.error(`Error al buscar/crear entidad ${nombre}:`, error);
-            return 1;
+            return null;
         }
     };
 
@@ -219,6 +246,39 @@ function InitialInventory() {
                     });
                 });
 
+                // Se valida todo el archivo antes de tocar la base: un error a mitad del proceso
+                // dejaría productos creados o el inventario inicial anterior borrado
+                const filas = [];
+                const codigosVistos = new Set();
+                for (const item of mapped) {
+                    const codigo = String(item.codigo).trim();
+                    const nombre = String(item.nombre).trim();
+                    if (!codigo && !nombre) continue;
+                    if (!codigo || !nombre) {
+                        throw new Error(`La fila ${filas.length + 1} del archivo necesita código y nombre`);
+                    }
+                    if (codigosVistos.has(codigo)) {
+                        throw new Error(`El producto "${codigo}" aparece repetido en el archivo; junta las cantidades en una sola fila`);
+                    }
+                    if (!Number.isInteger(item.cantidad) || item.cantidad <= 0) {
+                        throw new Error(`La cantidad del producto "${codigo}" debe ser un número entero mayor a 0: el inventario inicial no guarda productos sin stock`);
+                    }
+                    if (!Number.isFinite(item.precio_unitario) || item.precio_unitario <= 0) {
+                        throw new Error(`El precio del producto "${codigo}" debe ser mayor a 0`);
+                    }
+                    codigosVistos.add(codigo);
+                    filas.push({ ...item, codigo, nombre });
+                }
+                if (filas.length === 0) {
+                    throw new Error('El archivo no contiene productos para importar');
+                }
+                if (!proveedorEfectivo) {
+                    throw new Error('No hay proveedores autorizados: registra un proveedor antes de importar');
+                }
+                if (!almacenEfectivo) {
+                    throw new Error('No hay almacenes activos: registra un almacén antes de importar');
+                }
+
                 const productosExistentes = await fetchProductos();
                 const productosPorCodigo = {};
                 productosExistentes.forEach(p => {
@@ -226,7 +286,9 @@ function InitialInventory() {
                 });
 
                 const detalles = [];
-                for (const item of mapped) {
+                let total = 0;
+                const unidades = await fetchUnidadesMedida();
+                for (const item of filas) {
                     let producto = productosPorCodigo[item.codigo];
                     if (!producto) {
                         const idEmpresa = await buscarOCrearEntidad(item.empresa, fetchEmpresas, crearEmpresa);
@@ -237,7 +299,7 @@ function InitialInventory() {
                         const nuevo = await crearProducto({
                             codigo: item.codigo,
                             nombre: item.nombre,
-                            unidad_ingreso: item.unidad,
+                            id_unidad_medida: await buscarOCrearUnidadMedida(item.unidad, unidades),
                             id_empresa: idEmpresa,
                             id_categoria: idCategoria,
                             id_linea: idLinea,
@@ -247,6 +309,7 @@ function InitialInventory() {
                         producto = nuevo;
                         productosPorCodigo[item.codigo] = nuevo;
                     }
+                    total += Number(item.cantidad) * Number(item.precio_unitario);
                     detalles.push({
                         id_producto: producto.id_producto || producto.id,
                         cantidad: item.cantidad,
@@ -260,29 +323,28 @@ function InitialInventory() {
 
                 const ingresosExistentes = await fetchIngresos();
                 const inventarioAnterior = ingresosExistentes.find(ingreso => ingreso.detalle === 'INVENTARIO INICIAL');
-                
+
                 if (inventarioAnterior) {
                     await eliminarIngreso(inventarioAnterior.id);
-                    setAlert({ open: true, type: 'info', message: 'Inventario inicial anterior eliminado.' });
                 }
 
                 const payload = {
-                    id_proveedor: 1,
-                    id_almacen: 1,
+                    id_proveedor: Number(proveedorEfectivo),
+                    id_almacen: Number(almacenEfectivo),
                     fecha,
                     hora,
                     doc_respaldo: '',
                     numero_doc: '',
                     detalle: 'INVENTARIO INICIAL',
-                    total:  '',
-                    id_responsable: 1,
+                    total: Math.round(total * 100) / 100,
+                    id_responsable: user?.id,
                     detalles,
-                    forma_pago:  'EFECTIVO',
+                    forma_pago: 'EFECTIVO',
                 };
 
                 await crearIngreso(payload);
-                setItems(mapped);
-                setOriginalItems(mapped);
+                setItems(filas);
+                setOriginalItems(filas);
                 EventBus.dispatchEvent(new Event('INITIAL_INVENTORY_UPDATED'));
                 setAlert({ open: true, type: 'success', message: 'Ingreso registrado y productos cargados correctamente.' });
             } catch (err) {
@@ -532,6 +594,32 @@ function InitialInventory() {
                     >
                         Exportar Excel
                     </Button>
+                    <div className="flex items-center gap-1 ml-auto">
+                        <span className="text-xs text-gray-600 whitespace-nowrap">Proveedor</span>
+                        <div className="w-44">
+                            <ComboBox
+                                value={proveedorEfectivo}
+                                onChange={v => setDestino(d => ({ ...d, proveedorId: v }))}
+                                options={proveedores.map(p => ({ value: String(p.id), label: p.nombre }))}
+                                placeholder="Sin proveedores"
+                                searchable={true}
+                                clearable={false}
+                                disabled={loading || proveedores.length === 0}
+                            />
+                        </div>
+                        <span className="text-xs text-gray-600 whitespace-nowrap">Almacén</span>
+                        <div className="w-44">
+                            <ComboBox
+                                value={almacenEfectivo}
+                                onChange={v => setDestino(d => ({ ...d, almacenId: v }))}
+                                options={almacenes.map(a => ({ value: String(a.id), label: a.nombre }))}
+                                placeholder="Sin almacenes"
+                                searchable={true}
+                                clearable={false}
+                                disabled={loading || almacenes.length === 0}
+                            />
+                        </div>
+                    </div>
                     {loading && <span className="ml-2 text-blue-600 animate-pulse">Procesando...</span>}
                 </div>
                 <div className="flex-1 overflow-auto border border-gray-200">

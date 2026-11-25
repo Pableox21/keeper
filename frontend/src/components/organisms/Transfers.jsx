@@ -4,33 +4,63 @@ import { PlusIcon, PencilIcon, TrashIcon, CheckIcon, XMarkIcon } from '@heroicon
 import Button from '../atoms/Button';
 import { Input, Alert } from '../atoms';
 import { FormField, ComboBox } from '../molecules';
-import { fetchTraspasos, fetchOpcionesTraspaso, crearTraspaso, editarTraspaso, eliminarTraspaso, cambiarEstadoTraspaso } from '../../api/traspasos';
+import { fetchTraspasos, fetchTraspasoById, fetchOpcionesTraspaso, crearTraspaso, editarTraspaso, eliminarTraspaso, cambiarEstadoTraspaso } from '../../api/traspasos';
+import { useAuth } from '../../hooks/useAuth';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import EventBus from '../../utils/EventBus';
 
+function getFechaActual() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function getHoraActual() {
+    return new Date().toTimeString().slice(0, 5);
+}
+
+function fechaCorta(valor) {
+    if (!valor) return '';
+    const texto = String(valor);
+    return /^\d{4}-\d{2}-\d{2}/.test(texto) ? texto.slice(0, 10) : texto;
+}
+
+// Solo los estados que aún no movieron stock se pueden editar o eliminar
+const EDITABLE = ['PENDIENTE', 'PROCESADO'];
+
+const ESTADO_ESTILOS = {
+    PENDIENTE: 'bg-yellow-100 text-yellow-800',
+    PROCESADO: 'bg-blue-100 text-blue-800',
+    COMPLETADO: 'bg-green-100 text-green-800',
+    CANCELADO: 'bg-red-100 text-red-800'
+};
+
 function Transfers() {
+    const { user } = useAuth();
     const { alert, showAlert, closeAlert } = useAlert();
     const [transfers, setTransfers] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [almacenes, setAlmacenes] = useState([]);
-    // const [responsables, setResponsables] = useState([]);
+    const [almacenes, setAlmacenes] = useState({ origen: [], destino: [] });
+    const [responsables, setResponsables] = useState([]);
     const [productos, setProductos] = useState([]);
     const [formMode, setFormMode] = useState('disabled');
     const [selectedTransfer, setSelectedTransfer] = useState(null);
     const [expandedTransfer, setExpandedTransfer] = useState(null);
+    const [detallesExpanded, setDetallesExpanded] = useState([]);
+    const [loadingDetalles, setLoadingDetalles] = useState(false);
 
-    const [form, setForm] = useState({
+    const formularioVacio = () => ({
         almacenOrigenId: '',
         almacenDestinoId: '',
-        fechaTraspaso: new Date().toISOString().split('T')[0],
-        hora: new Date().toTimeString().slice(0, 5),
-        idAlmacenero: '',
+        fechaTraspaso: getFechaActual(),
+        hora: getHoraActual(),
+        idAlmacenero: user?.id ? String(user.id) : '',
         glosa: '',
         observaciones: '',
         detalles: []
     });
+
+    const [form, setForm] = useState(formularioVacio);
 
     const [productoSeleccionadoId, setProductoSeleccionadoId] = useState('');
 
@@ -48,7 +78,7 @@ function Transfers() {
                     destino: opcionesData.almacenesDestino || []
                 });
                 setProductos(opcionesData.productos || []);
-                // setResponsables(opcionesData.responsables || []);
+                setResponsables(opcionesData.responsables || []);
             } catch (error) {
                 console.error('Error al cargar datos:', error);
                 showAlert('error', 'Error al cargar los datos iniciales.');
@@ -90,59 +120,90 @@ function Transfers() {
         setSelectedTransfer(selectedTransfer?.id === transfer.id ? null : transfer);
     };
 
-    const handleToggleDetails = (transfer) => {
+    const handleToggleDetails = async (transfer) => {
         if (formMode !== 'disabled') return;
-        setExpandedTransfer(expandedTransfer?.id === transfer.id ? null : transfer);
+        if (expandedTransfer?.id === transfer.id) {
+            setExpandedTransfer(null);
+            setDetallesExpanded([]);
+            return;
+        }
+        setExpandedTransfer(transfer);
+        setLoadingDetalles(true);
+        setDetallesExpanded([]);
+        try {
+            const data = await fetchTraspasoById(transfer.id);
+            setDetallesExpanded(data.detalles || []);
+        } catch (error) {
+            showAlert('error', error.message || 'No se pudo cargar el detalle del traspaso');
+        } finally {
+            setLoadingDetalles(false);
+        }
     };
     const handleCreate = () => {
-        setForm({
-            almacenOrigenId: '',
-            almacenDestinoId: '',
-            fechaTraspaso: new Date().toISOString().split('T')[0],
-            hora: new Date().toTimeString().slice(0, 5),
-            idAlmacenero: '',
-            glosa: '',
-            observaciones: '',
-            detalles: []
-        });
+        setForm(formularioVacio());
         setFormMode('creating');
         setSelectedTransfer(null);
     };
-    const handleEdit = () => {
-        if (!selectedTransfer || selectedTransfer.estado !== 'PENDIENTE') return;
-        setForm({
-            almacenOrigenId: selectedTransfer.almacenOrigenId || '',
-            almacenDestinoId: selectedTransfer.almacenDestinoId || '',
-            fechaTraspaso: selectedTransfer.fechaTraspaso?.split('T')[0] || new Date().toISOString().split('T')[0],
-            hora: selectedTransfer.hora || new Date().toTimeString().slice(0, 5),
-            idAlmacenero: selectedTransfer.idAlmacenero || '',
-            glosa: selectedTransfer.glosa || '',
-            observaciones: selectedTransfer.observaciones || '',
-            detalles: selectedTransfer.detalles?.map(det => ({
-                productoId: det.productoId || det.id_producto || '',
-                productoNombre: det.productoNombre || det.producto_nombre || '',
-                cantidad: det.cantidad
-            })) || []
-        });
-        setFormMode('editing');
+    const handleEdit = async () => {
+        if (!selectedTransfer || !EDITABLE.includes(selectedTransfer.estado)) return;
+        setLoading(true);
+        try {
+            const data = await fetchTraspasoById(selectedTransfer.id);
+            setForm({
+                almacenOrigenId: data.id_almacen_origen ? String(data.id_almacen_origen) : '',
+                almacenDestinoId: data.id_almacen_destino ? String(data.id_almacen_destino) : '',
+                fechaTraspaso: fechaCorta(data.fecha) || getFechaActual(),
+                hora: data.hora ? String(data.hora).slice(0, 5) : getHoraActual(),
+                idAlmacenero: data.id_almacenero ? String(data.id_almacenero) : (user?.id ? String(user.id) : ''),
+                glosa: data.glosa || '',
+                observaciones: data.observaciones || '',
+                detalles: (data.detalles || []).map(det => ({
+                    productoId: String(det.id_producto),
+                    productoNombre: det.producto_nombre || '',
+                    cantidad: det.cantidad,
+                    observaciones: det.observaciones || ''
+                }))
+            });
+            setFormMode('editing');
+        } catch (error) {
+            showAlert('error', error.message || 'No se pudo cargar el traspaso para editar');
+        } finally {
+            setLoading(false);
+        }
     };
     const handleSave = async () => {
         try {
+            if (!form.almacenOrigenId) {
+                showAlert('error', 'Debes seleccionar un almacén de origen.');
+                return;
+            }
             if (!form.almacenDestinoId) {
                 showAlert('error', 'Debes seleccionar un almacén destino.');
+                return;
+            }
+            if (!form.idAlmacenero) {
+                showAlert('error', 'Debes seleccionar el almacenero que realiza el traspaso.');
+                return;
+            }
+            if (form.almacenOrigenId === form.almacenDestinoId) {
+                showAlert('error', 'El almacén de origen y el destino no pueden ser el mismo.');
                 return;
             }
             if (form.detalles.length === 0) {
                 showAlert('error', 'Debe agregar al menos un producto.');
                 return;
             }
+            if (form.detalles.some(det => !(Number(det.cantidad) > 0))) {
+                showAlert('error', 'Todos los productos deben tener una cantidad mayor a 0.');
+                return;
+            }
             setLoading(true);
             const formToSend = {
-                id_almacen_origen: 1,
+                id_almacen_origen: Number(form.almacenOrigenId),
                 id_almacen_destino: Number(form.almacenDestinoId),
                 fecha: form.fechaTraspaso,
                 hora: form.hora,
-                id_almacenero: 1,
+                id_almacenero: Number(form.idAlmacenero),
                 glosa: form.glosa || '',
                 observaciones: form.observaciones || '',
                 detalles: form.detalles.map(det => ({
@@ -151,16 +212,6 @@ function Transfers() {
                     observaciones: det.observaciones || ''
                 }))
             };
-            if (
-                isNaN(formToSend.id_almacen_origen) ||
-                isNaN(formToSend.id_almacen_destino) ||
-                isNaN(formToSend.id_almacenero) ||
-                !formToSend.hora
-            ) {
-                showAlert('error', 'Error: Faltan datos obligatorios.');
-                setLoading(false);
-                return;
-            }
             if (formMode === 'creating') {
                 await crearTraspaso(formToSend);
                 showAlert('success', 'Traspaso creado exitosamente');
@@ -182,18 +233,24 @@ function Transfers() {
         }
     };
     useEffect(() => {
-        if (almacenes.origen && almacenes.origen.length === 1) {
-            setForm(prev => ({ ...prev, almacenOrigenId: String(almacenes.origen[0].id) }));
+        // Con un único almacén principal no hay nada que elegir: se precarga al abrir el formulario
+        if (formMode !== 'disabled' && almacenes.origen?.length === 1) {
+            setForm(prev => (prev.almacenOrigenId ? prev : { ...prev, almacenOrigenId: String(almacenes.origen[0].id) }));
         }
-    }, [almacenes.origen]);
+    }, [almacenes.origen, formMode]);
+    useEffect(() => {
+        if (formMode !== 'disabled' && user?.id) {
+            setForm(prev => (prev.idAlmacenero ? prev : { ...prev, idAlmacenero: String(user.id) }));
+        }
+    }, [user?.id, formMode]);
     const handleCancel = () => {
         setFormMode('disabled');
         setSelectedTransfer(null);
         showAlert('info', 'Operación cancelada.');
     };
     const handleDelete = async () => {
-        if (!selectedTransfer || !['PENDIENTE', 'CANCELADO'].includes(selectedTransfer.estado)) return;
-        if (!confirm('¿Está seguro de eliminar este traspaso?')) return;
+        if (!selectedTransfer || selectedTransfer.estado === 'COMPLETADO') return;
+        if (!window.confirm('¿Está seguro de eliminar este traspaso?')) return;
         try {
             setLoading(true);
             await eliminarTraspaso(selectedTransfer.id);
@@ -203,9 +260,10 @@ function Transfers() {
             EventBus.dispatchEvent(new Event('TRANSFERS_UPDATED'));
             EventBus.dispatchEvent(new Event('INVENTORY_UPDATED'));
             setSelectedTransfer(null);
+            setExpandedTransfer(null);
         } catch (error) {
             console.error('Error al eliminar:', error);
-            showAlert('error', 'Error al eliminar el traspaso');
+            showAlert('error', error.message || 'Error al eliminar el traspaso');
         } finally {
             setLoading(false);
         }
@@ -215,15 +273,16 @@ function Transfers() {
         try {
             setLoading(true);
             await cambiarEstadoTraspaso(selectedTransfer.id, estado);
-            showAlert('success', `Traspaso ${estado.toLowerCase()} exitosamente`);
+            showAlert('success', `Traspaso ${estado.toLowerCase()} correctamente`);
             const traspasosData = await fetchTraspasos();
             setTransfers(traspasosData);
             EventBus.dispatchEvent(new Event('TRANSFERS_UPDATED'));
             EventBus.dispatchEvent(new Event('INVENTORY_UPDATED'));
             setSelectedTransfer(null);
+            setExpandedTransfer(null);
         } catch (error) {
             console.error('Error al cambiar estado:', error);
-            showAlert('error', 'Error al cambiar el estado del traspaso');
+            showAlert('error', error.message || 'Error al cambiar el estado del traspaso');
         } finally {
             setLoading(false);
         }
@@ -299,7 +358,7 @@ function Transfers() {
             });
             transfers.forEach(transfer => {
                 worksheet.addRow([
-                    transfer.fecha ? new Date(transfer.fecha).toLocaleDateString() : '-',
+                    fechaCorta(transfer.fecha) || '-',
                     transfer.almacen_origen_nombre || '-',
                     transfer.almacen_destino_nombre || '-',
                     transfer.observaciones || '-'
@@ -369,7 +428,7 @@ function Transfers() {
                 'Observaciones'
             ];
             const tableData = transfers.map(transfer => [
-                transfer.fecha ? new Date(transfer.fecha).toLocaleDateString() : '-',
+                fechaCorta(transfer.fecha) || '-',
                 transfer.almacen_origen_nombre || '-',
                 transfer.almacen_destino_nombre || '-',
                 transfer.observaciones || '-'
@@ -416,7 +475,9 @@ function Transfers() {
             showAlert('error', 'Error al generar el PDF');
         }
     };
+    const almacenOrigenOptions = (almacenes.origen || []).map(a => ({ value: String(a.id), label: a.nombre }));
     const almacenDestinoOptions = (almacenes.destino || []).map(a => ({ value: String(a.id), label: a.nombre }));
+    const almaceneroOptions = responsables.map(u => ({ value: String(u.id), label: u.username }));
     const productoOptions = productos.map(p => ({ value: String(p.id), label: `${p.codigo} - ${p.nombre}` }));
     return (
         <>
@@ -437,7 +498,7 @@ function Transfers() {
                             </Button>
                             <Button
                                 onClick={handleEdit}
-                                disabled={!selectedTransfer || selectedTransfer.estado !== 'PENDIENTE' || loading}
+                                disabled={!selectedTransfer || !EDITABLE.includes(selectedTransfer.estado) || loading}
                             >
                                 <PencilIcon className="w-4 h-4" />
                                 Editar
@@ -446,7 +507,7 @@ function Transfers() {
                             <div className="border-r border-gray-300 pr-2">
                                 <Button
                                     onClick={handleDelete}
-                                    disabled={!selectedTransfer || !['PENDIENTE', 'CANCELADO'].includes(selectedTransfer?.estado) || loading}
+                                    disabled={!selectedTransfer || selectedTransfer?.estado === 'COMPLETADO' || loading}
                                 >
                                     <TrashIcon className="w-4 h-4" />
                                     Eliminar
@@ -473,7 +534,7 @@ function Transfers() {
                             {selectedTransfer && selectedTransfer.estado === 'PENDIENTE' && (
                                 <>
                                     <Button
-                                        onClick={() => handleChangeStatus('EN_PROCESO')}
+                                        onClick={() => handleChangeStatus('PROCESADO')}
                                         disabled={loading}
                                         variant="success"
                                     >
@@ -490,14 +551,34 @@ function Transfers() {
                                     </Button>
                                 </>
                             )}
-                            {selectedTransfer && selectedTransfer.estado === 'EN_PROCESO' && (
+                            {selectedTransfer && selectedTransfer.estado === 'PROCESADO' && (
+                                <>
+                                    <Button
+                                        onClick={() => handleChangeStatus('COMPLETADO')}
+                                        disabled={loading}
+                                        variant="success"
+                                    >
+                                        <CheckIcon className="w-4 h-4" />
+                                        Completar
+                                    </Button>
+                                    <Button
+                                        onClick={() => handleChangeStatus('CANCELADO')}
+                                        disabled={loading}
+                                        variant="danger"
+                                    >
+                                        <XMarkIcon className="w-4 h-4" />
+                                        Cancelar
+                                    </Button>
+                                </>
+                            )}
+                            {selectedTransfer && selectedTransfer.estado === 'COMPLETADO' && (
                                 <Button
-                                    onClick={() => handleChangeStatus('COMPLETADO')}
+                                    onClick={() => handleChangeStatus('CANCELADO')}
                                     disabled={loading}
-                                    variant="success"
+                                    variant="danger"
                                 >
-                                    <CheckIcon className="w-4 h-4" />
-                                    Completar
+                                    <XMarkIcon className="w-4 h-4" />
+                                    Cancelar y devolver stock
                                 </Button>
                             )}
                         </>
@@ -516,6 +597,24 @@ function Transfers() {
                 {(formMode === 'creating' || formMode === 'editing') && (
                     <div className="bg-white border border-gray-300 p-2">
                         <form className="grid grid-cols-4 gap-2" onSubmit={handleSubmit}>
+                            <FormField label="Almacén Origen" layout="side" labelClassName="w-24">
+                                <ComboBox
+                                    options={almacenOrigenOptions}
+                                    value={form.almacenOrigenId}
+                                    onSelect={(value) => handleChange('almacenOrigenId', value)}
+                                    placeholder="Seleccione almacén origen"
+                                    required
+                                />
+                            </FormField>
+                            <FormField label="Almacenero" layout="side" labelClassName="w-24">
+                                <ComboBox
+                                    options={almaceneroOptions}
+                                    value={form.idAlmacenero}
+                                    onSelect={(value) => handleChange('idAlmacenero', value)}
+                                    placeholder="Seleccione el almacenero"
+                                    required
+                                />
+                            </FormField>
                             <FormField label="Hora" layout="side" labelClassName="w-24">
                                 <Input
                                     type="time"
@@ -535,7 +634,7 @@ function Transfers() {
                                 <ComboBox
                                     options={almacenDestinoOptions}
                                     value={form.almacenDestinoId}
-                                    onChange={(value) => handleChange('almacenDestinoId', value)}
+                                    onSelect={(value) => handleChange('almacenDestinoId', value)}
                                     placeholder="Seleccione almacén destino"
                                     required
                                 />
@@ -564,7 +663,7 @@ function Transfers() {
                                         <ComboBox
                                             options={productoOptions}
                                             value={productoSeleccionadoId}
-                                            onChange={handleDetalleChange}
+                                            onSelect={handleDetalleChange}
                                             placeholder="Buscar producto..."
                                             searchable={true}
                                             clearable={true}
@@ -656,6 +755,8 @@ function Transfers() {
                                     <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Fecha</th>
                                     <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Origen</th>
                                     <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Destino</th>
+                                    <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Almacenero</th>
+                                    <th className="p-2 text-center text-xs font-medium text-black uppercase tracking-wider">Estado</th>
                                     <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Observaciones</th>
                                     <th className="p-2 text-center text-xs font-medium text-black uppercase tracking-wider">Detalles</th>
                                 </tr>
@@ -663,11 +764,11 @@ function Transfers() {
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={7} className="text-center py-8 text-gray-500">Cargando traspasos...</td>
+                                        <td colSpan={8} className="text-center py-8 text-gray-500">Cargando traspasos...</td>
                                     </tr>
                                 ) : transfers.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="text-center py-8 text-gray-500">No hay traspasos registrados</td>
+                                        <td colSpan={8} className="text-center py-8 text-gray-500">No hay traspasos registrados</td>
                                     </tr>
                                 ) : (
                                     transfers.map((transfer, idx) => (
@@ -678,10 +779,16 @@ function Transfers() {
                                             >
                                                 <td className="p-2 text-xs text-center">{idx + 1}</td>
                                                 <td className="p-2 text-xs">
-                                                    {transfer.fecha ? new Date(transfer.fecha).toLocaleDateString() : '-'}
+                                                    {fechaCorta(transfer.fecha) || '-'}
                                                 </td>
                                                 <td className="p-2 text-xs">{transfer.almacen_origen_nombre || '-'}</td>
                                                 <td className="p-2 text-xs">{transfer.almacen_destino_nombre || '-'}</td>
+                                                <td className="p-2 text-xs">{transfer.almacenero_nombre || '-'}</td>
+                                                <td className="p-2 text-xs text-center">
+                                                    <span className={`px-2 py-0.5 rounded text-xs ${ESTADO_ESTILOS[transfer.estado] || 'bg-gray-100 text-gray-700'}`}>
+                                                        {transfer.estado || '-'}
+                                                    </span>
+                                                </td>
                                                 <td className="p-2 text-xs">{transfer.observaciones || '-'}</td>
                                                 <td className="p-2 text-xs text-center">
                                                     <button
@@ -697,25 +804,31 @@ function Transfers() {
                                             </tr>
                                             {expandedTransfer?.id === transfer.id && (
                                                 <tr className="bg-gray-50">
-                                                    <td colSpan={7} className="p-4">
+                                                    <td colSpan={8} className="p-4">
                                                         <div className="text-sm font-medium text-gray-900 mb-2">
-                                                            Detalles del Traspaso #{transfer.id}
+                                                            Detalles del Traspaso {transfer.codigo ? `«${transfer.codigo}»` : `#${transfer.id}`}
                                                         </div>
-                                                        {transfer.detalles && transfer.detalles.length > 0 ? (
+                                                        {loadingDetalles ? (
+                                                            <p className="text-gray-500 text-sm">Cargando detalle...</p>
+                                                        ) : detallesExpanded.length > 0 ? (
                                                             <div className="overflow-x-auto">
                                                                 <table className="min-w-full divide-y divide-gray-200">
                                                                     <thead className="bg-gray-100">
                                                                         <tr>
                                                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
                                                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cantidad</th>
+                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unidad</th>
+                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor unitario</th>
                                                                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Observaciones</th>
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody className="bg-white divide-y divide-gray-200">
-                                                                        {transfer.detalles.map((detalle, detalleIdx) => (
+                                                                        {detallesExpanded.map((detalle, detalleIdx) => (
                                                                             <tr key={detalleIdx}>
-                                                                                <td className="px-4 py-2 text-xs">{detalle.producto_nombre || detalle.productoNombre || '-'}</td>
-                                                                                <td className="px-4 py-2 text-xs">{detalle.cantidad || '-'}</td>
+                                                                                <td className="px-4 py-2 text-xs">{detalle.producto_nombre || '-'}</td>
+                                                                                <td className="px-4 py-2 text-xs">{detalle.cantidad ?? '-'}</td>
+                                                                                <td className="px-4 py-2 text-xs">{detalle.unidad_ingreso || '-'}</td>
+                                                                                <td className="px-4 py-2 text-xs">{Number(detalle.valor_unitario || 0).toFixed(2)}</td>
                                                                                 <td className="px-4 py-2 text-xs">{detalle.observaciones || '-'}</td>
                                                                             </tr>
                                                                         ))}

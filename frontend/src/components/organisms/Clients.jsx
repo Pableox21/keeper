@@ -31,6 +31,7 @@ const formatCi = (cliente) => (cliente.ci_complemento ? `${cliente.ci}-${cliente
 
 const validateForm = (form) => {
     if (!form.numero_contrato.trim()) return 'Ingresa el número de contrato';
+    if (!/^\d+$/.test(form.numero_contrato.trim())) return 'El número de contrato solo puede contener números';
     if (!form.nombre_completo.trim()) return 'Ingresa el nombre completo';
     if (form.nombre_completo.trim().length < 3) return 'El nombre completo debe tener al menos 3 caracteres';
     if (!NOMBRE_REGEX.test(form.nombre_completo.trim())) return 'El nombre completo solo puede contener letras y espacios';
@@ -277,7 +278,7 @@ function Clients() {
                             <FormField className="col-span-2" label="N° contrato" layout="side" required>
                                 <Input
                                     value={form.numero_contrato}
-                                    onChange={e => handleChange('numero_contrato', e.target.value.replace(/[^A-Za-z0-9./-]/g, '').slice(0, 30))}
+                                    onChange={e => handleChange('numero_contrato', e.target.value.replace(/\D/g, '').slice(0, 30))}
                                     placeholder="Ej: 00123"
                                     maxLength={30}
                                 />

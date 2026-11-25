@@ -13,6 +13,11 @@ build/
 .vite/
 *.log
 
+# Volcados de la base de datos (contienen hashes y sesiones)
+database/export/
+*.sqlite
+*.sqlite3
+
 # Sistema y editor
 .DS_Store
 Thumbs.db

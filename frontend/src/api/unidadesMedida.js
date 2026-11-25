@@ -25,3 +25,15 @@ export async function eliminarUnidadMedida(id) {
         method: 'DELETE'
     });
 }
+
+// Las importaciones desde Excel traen el nombre de la unidad, pero el producto se guarda por id.
+// `unidades` es la lista ya leída; se le agregan las que se creen durante la misma importación.
+export async function buscarOCrearUnidadMedida(nombre, unidades) {
+    const nombreBuscado = (nombre || '').trim() || 'Unidad';
+    let unidad = unidades.find(u => (u.nombre || '').trim().toLowerCase() === nombreBuscado.toLowerCase());
+    if (!unidad) {
+        unidad = await crearUnidadMedida({ nombre: nombreBuscado, abreviatura: nombreBuscado, tipo: 'UNIDAD', descripcion: '' });
+        unidades.push(unidad);
+    }
+    return unidad.id;
+}

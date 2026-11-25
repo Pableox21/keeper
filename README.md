@@ -17,6 +17,7 @@ Sistema web de gestión de inventarios: compras, traspasos entre almacenes, sali
 ```
 keeper/
 ├── backend/            API REST (Express)
+│   ├── scripts/        export-sqlite.mjs (volcado de la base a .sqlite)
 │   └── src/
 │       ├── config/         db.js, defaultUser.js
 │       ├── controllers/    lógica de cada módulo
@@ -31,7 +32,8 @@ keeper/
 ├── database/
 │   ├── schemas/        esquema completo
 │   ├── migrations/     migraciones numeradas
-│   └── externa/        segunda base (técnicos, OLTS y contratos)
+│   ├── externa/        segunda base (técnicos, OLTS y contratos)
+│   └── export/         archivos .sqlite generados por el script (fuera de git)
 ├── docker-compose.yml
 └── .env                variables de entorno (fuera de git; plantilla en .env.example)
 ```
@@ -40,6 +42,7 @@ keeper/
 
 ### Requisitos
 - Docker y Docker Compose
+- Node.js 22.5 o superior en la máquina solo para `backend/scripts/export-sqlite.mjs` (el volcado a SQLite); el resto del proyecto corre dentro de Docker
 
 ### Pasos
 1. Copia `.env.example` a `.env` y completa las contraseñas (`cp .env.example .env`).
@@ -107,7 +110,7 @@ La opción **Clientes** del menú lateral abre la pantalla de gestión de client
 
 | Campo | Detalle |
 |-------|---------|
-| N° de contrato | Obligatorio y único |
+| N° de contrato | Obligatorio, único y solo dígitos (máximo 30) |
 | Nombre completo | Obligatorio, solo letras (con tildes y ñ), espacios y los signos `. ' -`; sin números |
 | CI | Obligatorio, solo dígitos (5 a 10) |
 | Complemento del CI | Opcional, de 1 a 3 letras o números (ej. `1A`) |
@@ -138,22 +141,65 @@ Todos los formularios validan los datos en **dos lugares**: en el navegador (los
 | Teléfonos (proveedores, almacenes) | 7 u 8 dígitos; se aceptan espacios, guiones, paréntesis y el prefijo `+591` |
 | CI y NIT | Solo dígitos (CI de 5 a 10; NIT de 5 a 20) |
 | Códigos (producto, proveedor, almacén) | Letras, números, espacios y `. , _ - / # ( ) + : %`; máximo 50 |
-| Números de contrato | Letras, números y `. / -`; máximo 30 |
+| Números de contrato (clientes) | Solo dígitos; máximo 30 |
 | Stock mínimo / máximo | Enteros mayores o iguales a 0; el máximo no puede ser menor al mínimo |
-| Cantidades (ingresos, traspasos, salidas) | Enteros positivos; los ingresos admiten líneas en 0 si hay al menos una con cantidad |
-| Precios | Mayores o iguales a 0, con 2 decimales (se redondean) |
+| Cantidades (ingresos, traspasos, salidas) | Enteros mayores o iguales a 1: ninguna línea de detalle admite 0 |
+| Precios | Mayores o iguales a 0, con 2 decimales (se redondean). En el detalle de un ingreso el precio de la línea debe ser mayor a 0 |
 | Fechas y horas | Fecha válida `AAAA-MM-DD` (no futura) y hora `HH:MM` |
 | Estados, tipos y roles | Solo los valores permitidos de cada lista |
 | Textos | Sin caracteres de control y con el largo máximo de cada columna de la base de datos |
 
 Reglas adicionales:
-- **Ingresos (compras):** el servidor calcula siempre el total a partir del detalle.
+- **Productos:** la empresa, la categoría y la unidad de medida son obligatorias (las columnas no admiten nulo y tienen clave foránea). El texto `unidad_ingreso` no lo envía la pantalla: el servidor lo deriva del nombre de la unidad elegida y siempre lo lee a través de `unidad_medida`, por lo que una unidad renombrada se muestra con su nombre actual. El estado guardado no se pisa al editar: si el request no incluye un campo, se conserva su valor anterior.
+- **Ingresos (compras):** el servidor calcula siempre el total a partir del detalle (el `total` que envía la pantalla se ignora). Un producto no puede repetirse en el detalle, el proveedor y el almacén deben existir, y la forma de pago es una de la lista fija (`NULL` cuando se deja vacía). El responsable es el usuario con sesión iniciada si la pantalla no envía otro.
+- **Editar o eliminar un ingreso:** solo se permite si el stock que registró sigue disponible en el almacén. Si alguna salida o traspaso ya consumió parte de él, la operación se detiene y avisa cuánto stock hace falta descargar antes, dejando el ingreso intacto.
+- **Pantallas de ingresos:** Compras elige el almacén entre los activos; Inventario Inicial permite elegir proveedor y almacén destino en la barra superior (por defecto el autorizado y el principal) y valida todo el archivo Excel antes de escribir en la base, de modo que una fila con cantidad o precio en 0, un código repetido o un destino inexistivo abortan la importación sin dejar productos creados a medias.
 - **Traspasos y salidas:** el origen y el destino no pueden ser el mismo, y un producto no puede repetirse en el detalle (juntar las cantidades en una sola línea).
 - **Ids de la URL:** deben ser enteros positivos.
 
 Dónde está el código:
 - Backend: `backend/src/utils/validator.js` (reglas reutilizables) y `backend/src/middleware/validate.js` (validación por módulo, conectada en `backend/src/routes/*.js`).
 - Frontend: `frontend/src/utils/fieldRules.js` (restricciones al escribir).
+
+## Estados de traspasos y salidas
+
+El stock solo se mueve con el **estado** del movimiento, no con su creación. Las pantallas muestran la columna **Estado** y ofrecen los botones correspondientes.
+
+**Traspasos** (`PENDIENTE → PROCESADO → COMPLETADO`, o `CANCELADO`):
+
+| Estado | Efecto en el stock |
+|--------|--------------------|
+| `PENDIENTE` | Ninguno: se crea sin tocar inventario |
+| `PROCESADO` | Ninguno: queda listo para ejecutar |
+| `COMPLETADO` | Descuenta del almacén origen y suma al destino |
+| `CANCELADO` | Si venía de `COMPLETADO` devuelve el stock a su almacén origen; si no, no hay nada que devolver |
+
+**Salidas a producción** (`PENDIENTE → ENTREGADA`, o `CANCELADA`):
+
+| Estado | Efecto en el stock |
+|--------|--------------------|
+| `PENDIENTE` | Ninguno |
+| `ENTREGADA` | Descuenta del almacén de origen |
+| `CANCELADA` | Si venía de `ENTREGADA` devuelve el stock; desde `PENDIENTE` no toca nada. Desde la pantalla se puede **volver a entregar** |
+
+Reglas aplicadas en `cambiarEstadoTraspaso` y `cambiarEstadoSalida`:
+
+- Cada cambio de estado lee el stock con `SELECT ... FOR UPDATE` dentro de la transacción y lo comprueba antes de escribir: si no alcanza, responde `400` con cuánto falta y la transacción se revierte por completo (no quedan movimientos a medias).
+- Un traspaso `COMPLETADO` no se puede editar ni eliminar: primero hay que cancelarlo con **Cancelar y devolver stock**. Lo mismo aplica a una salida `ENTREGADA`.
+- Un traspaso solo se edita mientras está `PENDIENTE` o `PROCESADO`.
+- La pantalla envía el estado deseado; el servidor rechaza cualquier valor fuera de la lista con `400`.
+
+## Almacenes
+
+Además del nombre, la dirección, el teléfono, la zona y el estado (`ACTIVO` / `INACTIVO`), un almacén tiene tipo, cuenta de inventario, centro de costos y técnico responsable; el **almacén principal** es el destino por defecto de las compras y no se puede eliminar.
+
+Al pulsar **Eliminar** (`DELETE /api/almacenes/:id`):
+
+- Si tiene ingresos, salidas, traspasos o filas de inventario registrados, **no se borra**: queda como `INACTIVO` y el servidor responde `desactivado: true` con un mensaje explicándolo. Así se conserva el historial.
+- Si no tiene historial y su stock es `0`, se elimina definitivamente junto con sus filas de inventario.
+- El almacén principal y uno con stock mayor que `0` no se pueden eliminar (responde `400`).
+
+Desde la pantalla se puede cambiar el estado manualmente para dejar un almacén fuera de las listas sin perder sus datos. Los almacenes `INACTIVO` dejan de aparecer como origen y destino en traspasos y salidas.
 
 ## Gestión de usuarios
 
@@ -255,6 +301,22 @@ docker exec -i keeper-db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD"' < dat
 Con eso, en `.env` basta `DB_EXTERNA_HOST=mariadb`, `DB_EXTERNA_NAME=empresa_externa`, `DB_EXTERNA_USER=externa_user` y `DB_EXTERNA_PASSWORD=externa123` (esa contraseña la fija el propio script y es solo para desarrollo local). El script es idempotente: repetirlo lo deja igual.
 
 Para conectar una base externa de verdad, cambia solo `DB_EXTERNA_*` en `.env` y reinicia el backend (`docker compose up -d backend`). Fíjate en dos filtros que dependen de los datos de cada empresa: `CARGO IN ('SOPORTE TECNICO','INSTALADOR','REDES')` en `backend/src/controllers/almacenController.js` y `codigo LIKE 'ATT-%'` en `backend/src/controllers/salidasController.js`. Si la base externa no está a mano, esas pantallas siguen funcionando con sus datos locales: los combos salen vacíos y el log del backend avisa `Base externa no disponible`.
+
+### Ver los datos en un navegador de base de datos
+
+**DB Browser for SQLite** solo abre archivos `.sqlite`, no se conecta a MariaDB. Para poder recorrerlo ahí, `backend/scripts/export-sqlite.mjs` le vuelca las tablas (Node 22.5 o superior; en Node 24 muestra un aviso de "experimental" y nada más):
+
+```bash
+node backend/scripts/export-sqlite.mjs           # keeper -> database/export/keeper.sqlite
+node backend/scripts/export-sqlite.mjs externa   # empresa_externa -> database/export/empresa_externa.sqlite
+```
+
+Lee las credenciales del `.env` de la raíz, se conecta a `127.0.0.1:3310` (el puerto que publica el contenedor) y crea cada tabla con sus datos. Acepta `--host=`, `--port=` y `--salida=` para apuntar a otro sitio.
+
+- El `.sqlite` es una **foto fija**: registra algo en la página, relanza el script y vuelve a abrir el archivo para verlo. Los cambios que hagas en el archivo **no** regresan a MariaDB.
+- El relanzado reescribe las tablas dentro del mismo archivo (no lo borra), así que suele funcionar con DB Browser abierto; solo tienes que cerrar la base y volverla a abrir para ver los datos nuevos. Si el programa tiene el archivo bloqueado, el script lo dice y basta con `Archivo > Cerrar base de datos`.
+- `database/export/` está fuera de git porque el volcado incluye `password_hash` de `usuario` y las `sessions` activas.
+- Para leer y escribir directamente sobre la base, usa un cliente de MariaDB (HeidiSQL, DBeaver, MySQL Workbench): host `127.0.0.1`, puerto `3310`, usuario `keeper_user` y la contraseña `DB_PASSWORD` del `.env`; la segunda base entra con `externa_user` / `DB_EXTERNA_PASSWORD` sobre el esquema `empresa_externa`.
 
 ## Desarrollo sin Docker
 

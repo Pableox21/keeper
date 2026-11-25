@@ -21,6 +21,9 @@ Contiene las migraciones de base de datos organizadas secuencialmente:
 ### `/externa`
 - `empresa_externa.sql`: Segunda base de datos a la que se conecta el backend (`poolExterna`), simulada dentro del mismo contenedor MariaDB. Crea el esquema `empresa_externa` con las tablas de solo lectura `personal`, `olt`, `contratos` y `clientes`, datos de ejemplo y el usuario `externa_user` (solo `SELECT` sobre ese esquema). Es idempotente y se monta como `07_empresa_externa.sql` en `docker-entrypoint-initdb.d`.
 
+### `/export`
+Archivos `.sqlite` generados por `backend/scripts/export-sqlite.mjs` para abrirlos en DB Browser for SQLite. Son locales y están fuera de git.
+
 
 
 ## Uso
@@ -37,6 +40,16 @@ Los cambios de esquema que ya están codificados en `backend/src/config/ensureSc
 
 ### Aplicar Migraciones
 Las migraciones en `/migrations` deben aplicarse en orden secuencial según su numeración.
+
+### Exportar los datos a SQLite
+`backend/scripts/export-sqlite.mjs` vuelca un esquema a un archivo `.sqlite` para abrirlo en DB Browser for SQLite (que no se conecta a MariaDB):
+
+```bash
+node backend/scripts/export-sqlite.mjs           # keeper -> database/export/keeper.sqlite
+node backend/scripts/export-sqlite.mjs externa   # empresa_externa -> database/export/empresa_externa.sqlite
+```
+
+Se conecta a `127.0.0.1:3310` con las credenciales del `.env` de la raíz y escribe en `database/export/`, que está fuera de git porque el volcado lleva `password_hash` y `sessions`. Es una foto fija: hay que relanzarlo después de registrar datos en la página.
 
 ## Mantenimiento
 

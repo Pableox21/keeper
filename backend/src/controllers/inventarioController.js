@@ -1,5 +1,15 @@
 const { pool } = require('../config/db');
 const { handleBigInt } = require('../utils/bigIntHandler');
+const { responderErrorBase } = require('../utils/erroresBase');
+
+
+function responderErrorInventario(res, err, contexto) {
+    return responderErrorBase(res, err, contexto, {
+        foranea: 'El almacén o el producto del inventario no existen',
+        check: 'El costo promedio y el stock no pueden ser negativos',
+        generico: 'No se pudo leer el inventario'
+    });
+}
 
 
 /--------------------Obtener inventario por almacén--------------------------------------------------------------------------------------/
@@ -19,7 +29,7 @@ exports.getInventarioByAlmacen = async (req, res) => {
                 i.costo_promedio,
                 p.codigo as producto_codigo,
                 p.nombre as producto_nombre,
-                p.unidad_ingreso,
+                COALESCE(um.nombre, p.unidad_ingreso) as unidad_ingreso,
                 p.stock_minimo,
                 p.stock_maximo,
                 a.codigo as almacen_codigo,
@@ -28,6 +38,7 @@ exports.getInventarioByAlmacen = async (req, res) => {
             FROM inventario i
             INNER JOIN producto p ON i.id_producto = p.id
             INNER JOIN almacen a ON i.id_almacen = a.id
+            LEFT JOIN unidad_medida um ON p.id_unidad_medida = um.id
             WHERE i.id_almacen = ?
             AND p.estado = 'ACTIVO'
             AND a.estado = 'ACTIVO'
@@ -38,7 +49,6 @@ exports.getInventarioByAlmacen = async (req, res) => {
         res.json(handleBigInt(inventario));
         
     } catch (error) {
-        console.error('Error al obtener inventario por almacén:', error);
-        res.status(500).json({ error: error.message });
+        responderErrorInventario(res, error, 'getInventarioByAlmacen');
     }
 };

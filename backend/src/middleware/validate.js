@@ -8,6 +8,7 @@ const ESTADOS_PRODUCTO = ['ACTIVO', 'INACTIVO', 'DESCONTINUADO'];
 const ESTADOS_ALMACEN = ['ACTIVO', 'INACTIVO', 'MANTENIMIENTO'];
 const TIPOS_UNIDAD = ['PESO', 'VOLUMEN', 'LONGITUD', 'AREA', 'UNIDAD', 'TIEMPO'];
 const FORMAS_PAGO = ['EFECTIVO', 'QR', 'TRANSFERENCIA'];
+const ESTADOS_MATERIAL = ['NUEVO', 'USADO', 'REACONDICIONADO'];
 
 const MAX_DETALLES = 200;
 const MAX_CANTIDAD = 1000000;
@@ -48,25 +49,40 @@ exports.validateLogin = make((v, b) => {
 });
 
 // ---------- Productos ----------
+// `unidad_ingreso` no se recibe: el controlador la deriva del nombre de `id_unidad_medida`,
+// porque es una columna de texto que otras pantallas muestran como si fuera el nombre.
 exports.validateProducto = (isUpdate = false) => make((v, b) => {
-    b.codigo = v.code(b.codigo, 'El código', { required: true, max: 50 });
-    b.nombre = v.text(b.nombre, 'El nombre', { required: true, max: 255 });
-    b.unidad_ingreso = v.text(b.unidad_ingreso, 'La unidad de ingreso', { max: 50 }) || 'Unidad';
+    delete b.unidad_ingreso;
+
+    // En la edición solo se validan los campos que llegaron; el controlador conserva el resto
+    const has = (key) => !isUpdate || b[key] !== undefined;
+
+    if (has('codigo')) b.codigo = v.code(b.codigo, 'El código', { required: true, max: 50 });
+    if (has('nombre')) b.nombre = v.text(b.nombre, 'El nombre', { required: true, max: 255 });
 
     const stockMin = v.int(b.stock_minimo, 'El stock mínimo', { min: 0, max: 1000000000 });
     const stockMax = v.int(b.stock_maximo, 'El stock máximo', { min: 0, max: 1000000000 });
-    b.stock_minimo = stockMin ?? 0;
-    b.stock_maximo = stockMax;
-    if (stockMax !== null && stockMax < b.stock_minimo) {
+    if (has('stock_minimo')) b.stock_minimo = stockMin ?? 0;
+    if (has('stock_maximo')) b.stock_maximo = stockMax;
+    if (stockMax !== null && stockMax < (b.stock_minimo ?? 0)) {
         v.fail('El stock máximo no puede ser menor al stock mínimo');
     }
 
-    b.estado = v.oneOf(b.estado, 'El estado', ESTADOS_PRODUCTO) || 'ACTIVO';
+    if (has('estado')) {
+        // El valor vacío del selector significa ACTIVO
+        b.estado = v.oneOf(b.estado, 'El estado', ESTADOS_PRODUCTO) ?? 'ACTIVO';
+    }
 
-    setIfPresent(b, 'id_empresa', v.id(b.id_empresa, 'La empresa', { required: isUpdate }));
-    setIfPresent(b, 'id_categoria', v.id(b.id_categoria, 'La categoría', { required: isUpdate }));
-    // Al crear, si no viene, el controlador usa la unidad por defecto (importaciones desde Excel)
-    setIfPresent(b, 'id_unidad_medida', v.id(b.id_unidad_medida, 'La unidad de medida', { required: isUpdate }));
+    if (has('precio_venta')) {
+        const precio = v.number(b.precio_venta, 'El precio de venta', { min: 0, max: MAX_PRECIO });
+        // Se guarda con 2 decimales, igual que lo haría la base de datos
+        b.precio_venta = precio === null ? 0 : Math.round(precio * 100) / 100;
+    }
+
+    // Las tres son columnas NOT NULL con clave foránea: sin ellas el alta falla en la base
+    if (has('id_empresa')) b.id_empresa = v.id(b.id_empresa, 'La empresa', { required: true });
+    if (has('id_categoria')) b.id_categoria = v.id(b.id_categoria, 'La categoría', { required: true });
+    if (has('id_unidad_medida')) b.id_unidad_medida = v.id(b.id_unidad_medida, 'La unidad de medida', { required: true });
     b.id_linea = v.id(b.id_linea, 'La línea');
     b.id_marca = v.id(b.id_marca, 'La marca');
 });
@@ -143,6 +159,33 @@ exports.validateUnidadMedida = make((v, b) => {
     b.descripcion = v.text(b.descripcion, 'La descripción', { max: 1000, multiline: true });
 });
 
+// ---------- Clientes de internet ----------
+const ZONAS_CLIENTE = ['SIPE_SIPE', 'SUTICOLLO', 'MALLCO_CHAPI'];
+const PLANES_CLIENTE = ['ECONOMICO', 'MEDIO', 'PREMIUM', 'GAMER'];
+const ESTADOS_CLIENTE = ['ACTIVO', 'INACTIVO'];
+
+exports.validateCliente = make((v, b) => {
+    b.numero_contrato = v.digits(b.numero_contrato, 'El número de contrato', { required: true, max: 30 });
+    b.nombre_completo = v.name(b.nombre_completo, 'El nombre completo', { required: true, min: 3, max: 255 });
+    b.ci = v.digits(b.ci, 'El CI', { required: true, min: 5, max: 10 });
+    b.ci_complemento = v.text(b.ci_complemento, 'El complemento del CI', {
+        max: 3,
+        pattern: /^[A-Z0-9]{1,3}$/u,
+        patternMessage: 'debe tener entre 1 y 3 letras o números'
+    });
+    b.celular = v.digits(b.celular, 'El celular', { required: true, min: 8, max: 8 });
+    if (!v.error && b.celular && !/^[67]/.test(b.celular)) {
+        v.fail('El celular debe empezar con 6 o 7');
+    }
+    b.zona = v.oneOf(b.zona, 'La zona', ZONAS_CLIENTE, { required: true });
+    b.plan = v.oneOf(b.plan, 'El plan', PLANES_CLIENTE, { required: true });
+});
+
+// ---------- Estado (activar / desactivar) ----------
+exports.validateEstadoCliente = make((v, b) => {
+    b.estado = v.oneOf(b.estado, 'El estado', ESTADOS_CLIENTE, { required: true });
+});
+
 // ---------- Catálogos simples (categoría, marca, línea, empresa) ----------
 exports.validateCatalogo = make((v, b) => {
     b.nombre = v.text(b.nombre, 'El nombre', { required: true, max: 255 });
@@ -150,7 +193,8 @@ exports.validateCatalogo = make((v, b) => {
 });
 
 // ---------- Detalle de productos (ingresos, traspasos y salidas) ----------
-function validateDetalles(v, b, { precio = false, observaciones = false, sinRepetidos = false, permitirCero = false } = {}) {
+// Todas las tablas de detalle tienen CHECK (cantidad > 0), así que nunca se admite cero.
+function validateDetalles(v, b, { precio = false, precioOpcional = false, observaciones = false, sinRepetidos = false } = {}) {
     if (!Array.isArray(b.detalles) || b.detalles.length === 0) {
         v.fail('Debes agregar al menos un producto al detalle');
         return [];
@@ -169,11 +213,17 @@ function validateDetalles(v, b, { precio = false, observaciones = false, sinRepe
         }
         const out = { ...item };
         out.id_producto = v.id(item.id_producto, `El producto #${n}`, { required: true });
-        out.cantidad = v.int(item.cantidad, `La cantidad del producto #${n}`, { required: true, min: permitirCero ? 0 : 1, max: MAX_CANTIDAD });
+        out.cantidad = v.int(item.cantidad, `La cantidad del producto #${n}`, { required: true, min: 1, max: MAX_CANTIDAD });
         if (precio) {
-            // El precio se guarda con 2 decimales: se redondea igual que lo haría la base de datos
-            const precioNum = v.number(item.precio_unitario, `El precio del producto #${n}`, { required: true, min: 0, max: MAX_PRECIO });
+            // `ingreso_detalle` exige precio_unitario > 0 (y con ella subtotal > 0)
+            const precioNum = v.number(item.precio_unitario, `El precio del producto #${n}`, { required: true, min: 0.01, max: MAX_PRECIO });
             out.precio_unitario = precioNum === null ? null : Math.round(precioNum * 100) / 100;
+        } else if (precioOpcional) {
+            // En salidas y traspasos la línea puede no traer precio: se guarda 0 en lugar de reventar en la base
+            const precioNum = item.precio_unitario === undefined || item.precio_unitario === null || item.precio_unitario === ''
+                ? 0
+                : v.number(item.precio_unitario, `El precio del producto #${n}`, { min: 0, max: MAX_PRECIO });
+            out.precio_unitario = precioNum === null || precioNum === undefined ? 0 : Math.round(precioNum * 100) / 100;
         }
         if (observaciones) {
             out.observaciones = v.text(item.observaciones, `La observación del producto #${n}`, { max: 500, multiline: true });
@@ -201,22 +251,19 @@ exports.validateIngreso = make((v, b, req) => {
     b.forma_pago = v.oneOf(b.forma_pago, 'La forma de pago', FORMAS_PAGO);
     b.id_responsable = v.id(b.id_responsable, 'El responsable') ?? (req.user ? Number(req.user.id) : null);
 
-    // Inventario Inicial puede traer productos con cantidad 0, siempre que haya al menos uno con stock
-    const detalles = validateDetalles(v, b, { precio: true, permitirCero: true });
-    if (!v.error && !detalles.some((d) => d.cantidad > 0)) {
-        v.fail('Debes registrar al menos un producto con cantidad mayor a 0');
-    }
+    // `ingreso_detalle` tiene clave única (ingreso, producto): un producto repetido reventaría en la base
+    validateDetalles(v, b, { precio: true, sinRepetidos: true });
 
     // El total declarado debe ser un número válido, pero el servidor guarda siempre el total real del detalle
     v.number(b.total, 'El total', { min: 0, max: MAX_PRECIO * 10 });
     if (!v.error) {
-        const suma = detalles.reduce((acc, d) => acc + d.cantidad * d.precio_unitario, 0);
+        const suma = b.detalles.reduce((acc, d) => acc + d.cantidad * d.precio_unitario, 0);
         b.total = Math.round(suma * 100) / 100;
     }
 });
 
 // ---------- Traspasos ----------
-exports.validateTraspaso = make((v, b) => {
+exports.validateTraspaso = make((v, b, req) => {
     b.id_almacen_origen = v.id(b.id_almacen_origen, 'El almacén de origen', { required: true });
     b.id_almacen_destino = v.id(b.id_almacen_destino, 'El almacén de destino', { required: true });
     if (b.id_almacen_origen !== null && b.id_almacen_origen === b.id_almacen_destino) {
@@ -224,7 +271,9 @@ exports.validateTraspaso = make((v, b) => {
     }
     b.fecha = v.date(b.fecha, 'La fecha', { required: true });
     b.hora = v.time(b.hora, 'La hora', { required: true });
-    setIfPresent(b, 'id_almacenero', v.id(b.id_almacenero, 'El almacenero'));
+    // `id_almacenero` es NOT NULL: sin él la base rechaza el alta, así que se toma el usuario de la sesión
+    b.id_almacenero = v.id(b.id_almacenero, 'El almacenero') ?? (req.user ? Number(req.user.id) : null);
+    if (!v.error && !b.id_almacenero) v.fail('El almacenero es requerido');
     b.glosa = v.text(b.glosa, 'La glosa', { max: 1000, multiline: true });
     b.observaciones = v.text(b.observaciones, 'Las observaciones', { max: 1000, multiline: true });
     validateDetalles(v, b, { observaciones: true, sinRepetidos: true });
@@ -236,9 +285,22 @@ exports.validateSalida = make((v, b, req) => {
     b.fecha = v.date(b.fecha, 'La fecha', { required: true });
     b.id_tipo_salida = v.id(b.id_tipo_salida, 'El tipo de salida', { required: true });
     b.id_responsable = v.id(b.id_responsable, 'El responsable') ?? (req.user ? Number(req.user.id) : null);
+    b.id_orden_trabajo = v.id(b.id_orden_trabajo, 'La orden de trabajo');
     b.detalle = v.text(b.detalle, 'El detalle', { max: 1000, multiline: true });
     b.observaciones = v.text(b.observaciones, 'Las observaciones', { max: 1000, multiline: true });
     b.departamento = v.text(b.departamento, 'El departamento', { max: 100 });
     b.destino = v.text(b.destino, 'El destino', { max: 255 });
-    validateDetalles(v, b, { sinRepetidos: true });
+
+    // `lote`, `serie` y `estado_material` son columnas cortas con valores fijos: un valor inválido
+    // abortaría el alta contra las restricciones CHECK de la base
+    if (Array.isArray(b.detalles)) {
+        b.detalles.forEach((item, i) => {
+            if (item && typeof item === 'object') {
+                item.lote = v.text(item.lote, `El lote del producto #${i + 1}`, { max: 50 });
+                item.serie = v.text(item.serie, `El número de serie del producto #${i + 1}`, { max: 100 });
+                item.estado_material = v.oneOf(item.estado_material, `El estado del material del producto #${i + 1}`, ESTADOS_MATERIAL) ?? 'NUEVO';
+            }
+        });
+    }
+    validateDetalles(v, b, { precioOpcional: true, sinRepetidos: true });
 });

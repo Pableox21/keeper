@@ -1,16 +1,55 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import { onlyDigits } from '../../utils/fieldRules';
-import { WrenchScrewdriverIcon, PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, PencilIcon, TrashIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import Button from '../atoms/Button';
 import { Input, Select, Alert } from '../atoms';
 import { FormField, ComboBox } from '../molecules';
-import { fetchAlmacenes } from '../../api/almacenes';
-import { fetchOpcionesSalida, fetchSalidas, registrarSalida } from '../../api/salidas';
-import { authenticatedFetch } from '../../api/auth';
+import {
+    fetchOpcionesSalida,
+    fetchSalidas,
+    fetchSalidaById,
+    registrarSalida,
+    actualizarSalida,
+    eliminarSalida,
+    cambiarEstadoSalida
+} from '../../api/salidas';
 import { fetchInventarioPorAlmacen } from '../../api/inventarios';
+import { useAuth } from '../../hooks/useAuth';
 import EventBus from '../../utils/EventBus';
 
+const ESTADO_ESTILOS = {
+    ENTREGADA: 'bg-green-100 text-green-800',
+    PENDIENTE: 'bg-yellow-100 text-yellow-800',
+    CANCELADA: 'bg-red-100 text-red-800'
+};
+
+function getFechaActual() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+// La API devuelve la fecha como texto ISO; el input type="date" trabaja con AAAA-MM-DD
+function fechaCorta(valor) {
+    if (!valor) return '';
+    const texto = String(valor);
+    return /^\d{4}-\d{2}-\d{2}/.test(texto) ? texto.slice(0, 10) : texto;
+}
+
+function formVacio(user) {
+    return {
+        fecha: getFechaActual(),
+        id_almacen: '',
+        id_tipo_salida: '',
+        id_orden_trabajo: '',
+        id_responsable: user?.id ? String(user.id) : '',
+        detalle: '',
+        departamento: '',
+        destino: '',
+        observaciones: '',
+    };
+}
+
 function ProductionOutput() {
+    const { user } = useAuth();
     // Estado para inventario y detalles de productos
     const [inventario, setInventario] = useState([]);
     const [productoSeleccionadoId, setProductoSeleccionadoId] = useState('');
@@ -18,21 +57,15 @@ function ProductionOutput() {
     const [departamentoOptions, setDepartamentoOptions] = useState([]);
     const [olts, setOlts] = useState([]);
     const [clientesInternos, setClientesInternos] = useState([]);
+    const [tiposSalida, setTiposSalida] = useState([]);
+    const [responsables, setResponsables] = useState([]);
     const [alert, setAlert] = useState({ open: false, type: 'info', message: '' });
     const [almacenes, setAlmacenes] = useState([]);
+    const [loading, setLoading] = useState(false);
     const [formMode, setFormMode] = useState('disabled'); // 'disabled', 'creating', 'editing'
     const [selectedOutput, setSelectedOutput] = useState(null);
     const [outputs, setOutputs] = useState([]);
-    const [form, setForm] = useState({
-        fecha: '',
-        id_almacen: '',
-        id_tipo_salida: '',
-        id_orden_trabajo: '',
-        detalle: '',
-        departamento: '',
-        destino: '',
-        observaciones: '',
-    });
+    const [form, setForm] = useState(() => formVacio(user));
 
     // Estado para detalles de la salida seleccionada
     const [detallesSalidaSeleccionada, setDetallesSalidaSeleccionada] = useState([]);
@@ -50,8 +83,6 @@ function ProductionOutput() {
         } else {
             setInventario([]);
         }
-        setDetalles([]); // Limpiar detalles al cambiar almacén
-        setProductoSeleccionadoId('');
     }, [form.id_almacen]);
 
     // Opciones para ComboBox de productos
@@ -62,18 +93,10 @@ function ProductionOutput() {
 
     // Agregar producto a detalles
     const handleAddDetalle = () => {
-        if (!productoSeleccionadoId) {
-            console.log('No hay producto seleccionado');
-            return;
-        }
-    const producto = inventario.find(p => String(p.id_producto) === String(productoSeleccionadoId));
-        if (!producto) {
-            console.log('Producto no encontrado en inventario');
-            return;
-        }
-    if (detalles.some(item => item.productoId === producto.id_producto.toString())) {
-            return;
-        }
+        if (!productoSeleccionadoId) return;
+        const producto = inventario.find(p => String(p.id_producto) === String(productoSeleccionadoId));
+        if (!producto) return;
+        if (detalles.some(item => item.productoId === producto.id_producto.toString())) return;
         setDetalles(prev => {
             const nuevos = [
                 ...prev,
@@ -100,59 +123,52 @@ function ProductionOutput() {
     const handleRemoveDetalle = (index) => {
         setDetalles(prev => prev.filter((_, i) => i !== index));
     };
-    // Cargar salidas reales al montar el componente
-    // ...existing code...
     // Manejar creación de nueva salida
     const handleCreate = () => {
         setFormMode('creating');
         setSelectedOutput(null);
-        setForm({
-            fecha: '',
-            id_almacen: '',
-            id_tipo_salida: '',
-            id_orden_trabajo: '',
-            detalle: '',
-            departamento: '',
-            destino: '',
-            observaciones: '',
-        });
+        setForm(formVacio(user));
+        setDetalles([]);
         setAlert({ open: true, type: 'info', message: 'Complete los campos para registrar una nueva salida.' });
     };
-    useEffect(() => {
-        fetchSalidas()
+
+    const recargarSalidas = () => {
+        return fetchSalidas()
             .then(data => {
-                setOutputs(Array.isArray(data) ? data : []);
+                const lista = Array.isArray(data) ? data : [];
+                setOutputs(lista);
+                return lista;
             })
             .catch(err => {
-                setAlert({ open: true, type: 'error', message: 'Error al cargar salidas.'+err });
                 setOutputs([]);
+                setAlert({ open: true, type: 'error', message: err.message || 'Error al cargar salidas.' });
+                return [];
             });
+    };
+
+    useEffect(() => {
+        recargarSalidas();
         // Suscribirse a eventos de actualización global
-        const handler = () => {
-            fetchSalidas().then(data => setOutputs(Array.isArray(data) ? data : [])).catch(console.error);
-        };
+        const handler = () => { recargarSalidas(); };
         EventBus.addEventListener('PRODUCTION_OUTPUT_UPDATED', handler);
         return () => EventBus.removeEventListener('PRODUCTION_OUTPUT_UPDATED', handler);
     }, []);
 
-    // Obtener opciones de salida y poblar departamentoOptions, olts y clientesInternos
+    // El endpoint de opciones entrega los almacenes válidos, los tipos de salida, los responsables
+    // y los destinos (departamentos, OLTS y contratos internos) del formulario
     useEffect(() => {
         fetchOpcionesSalida()
             .then(data => {
-                if (data && data.departamentos) {
-                    setDepartamentoOptions(data.departamentos.map(d => ({ value: d.codigo, label: d.nombre })));
-                } else if (data && data.departamento) {
-                    setDepartamentoOptions(data.departamento.map(d => ({ value: d.codigo, label: d.nombre })));
-                }
-                if (data && data.olts) {
-                    setOlts(data.olts.map(o => ({ value: String(o.id), label: String(o.respuesta) })));
-                }
-                if (data && data.clientes_internos) {
-                    setClientesInternos(data.clientes_internos.map(c => ({ value: c.contrato, label: `${c.contrato} | ${c.nombre_completo}` })));
-                }
+                if (!data) return;
+                setAlmacenes(data.almacenes || []);
+                setTiposSalida(data.tiposSalida || []);
+                setResponsables(data.responsables || []);
+                setDepartamentoOptions((data.departamentos || []).map(d => ({ value: String(d.codigo), label: d.nombre })));
+                setOlts((data.olts || []).map(o => ({ value: String(o.id), label: String(o.respuesta) })));
+                setClientesInternos((data.clientes_internos || []).map(c => ({ value: c.contrato, label: `${c.contrato} | ${c.nombre_completo}` })));
             })
             .catch(err => {
-                console.error('Error al obtener opciones de salida:', err);
+                setAlert({ open: true, type: 'error', message: err.message || 'Error al cargar las opciones de salida.' });
             });
     }, []);
 
@@ -169,141 +185,174 @@ function ProductionOutput() {
         return [];
     }, [form.departamento, departamentoOptions, olts, clientesInternos]);
 
-    // LLAMAR AL ENDPOINT DE OPCIONES DE SALIDA Y MOSTRAR EN CONSOLA
-    useEffect(() => {
-        fetchOpcionesSalida()
-    }, []);
+    const responsableOptions = responsables.map(u => ({ value: String(u.id), label: u.username }));
 
-    // CARGAR ALMACENES AL INICIALIZAR
-    const dummyTiposSalida = [
-        { id: 1, nombre: 'PRODUCCION' }
-    ];
+    // El usuario elige otro almacén: se limpia el detalle porque los productos ya no corresponden
+    const handleAlmacenChange = (value) => {
+        setForm(f => ({ ...f, id_almacen: value }));
+        setDetalles([]);
+        setProductoSeleccionadoId('');
+    };
 
-    useEffect(() => {
-        fetchAlmacenes()
-            .then(data => {
-                setAlmacenes(data);
-            })
-            .catch(error => {
-                console.error('Error al cargar almacenes:', error);
-                setAlmacenes([]);
-            });
-    }, []);
-
-    const handleEdit = () => {
+    const handleEdit = async () => {
         if (!selectedOutput) {
             setAlert({ open: true, type: 'warning', message: 'Seleccione una salida para editar.' });
             return;
         }
-        setFormMode('editing');
-        setForm({
-            fecha: selectedOutput.fecha,
-            id_almacen: selectedOutput.id_almacen,
-            id_tipo_salida: selectedOutput.id_tipo_salida,
-            id_orden_trabajo: selectedOutput.id_orden_trabajo || '',
-            detalle: selectedOutput.detalle,
-            departamento: selectedOutput.departamento || '',
-            destino: selectedOutput.destino || '',
-            observaciones: selectedOutput.observaciones,
-        });
-        setAlert({ open: true, type: 'info', message: 'Edite los campos y guarde los cambios.' });
+        setLoading(true);
+        try {
+            const data = await fetchSalidaById(selectedOutput.id);
+            setForm({
+                fecha: fechaCorta(data.fecha),
+                id_almacen: String(data.id_almacen ?? ''),
+                id_tipo_salida: String(data.id_tipo_salida ?? ''),
+                id_orden_trabajo: data.id_orden_trabajo ? String(data.id_orden_trabajo) : '',
+                id_responsable: data.id_responsable ? String(data.id_responsable) : (user?.id ? String(user.id) : ''),
+                detalle: data.detalle || '',
+                departamento: data.departamento || '',
+                destino: data.destino || '',
+                observaciones: data.observaciones || '',
+            });
+            setDetalles((data.detalles || []).map(item => ({
+                productoId: String(item.id_producto),
+                id_producto: Number(item.id_producto),
+                productoNombre: item.producto_nombre || '',
+                cantidad: item.cantidad,
+                stock_actual: item.cantidad,
+                unidad_ingreso: item.unidad_ingreso || ''
+            })));
+            setFormMode('editing');
+        } catch (error) {
+            setAlert({ open: true, type: 'error', message: error.message || 'No se pudo cargar la salida para editar.' });
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (!selectedOutput) {
             setAlert({ open: true, type: 'warning', message: 'Seleccione una salida para eliminar.' });
             return;
         }
-        if (window.confirm('¿Está seguro de que desea eliminar esta salida?')) {
-            setOutputs(prevOutputs => prevOutputs.filter(output => output.id !== selectedOutput.id));
+        if (!window.confirm('¿Está seguro de que desea eliminar esta salida?')) return;
+        setLoading(true);
+        try {
+            await eliminarSalida(selectedOutput.id);
             setSelectedOutput(null);
+            setDetallesSalidaSeleccionada([]);
             EventBus.dispatchEvent(new Event('PRODUCTION_OUTPUT_UPDATED'));
+            EventBus.dispatchEvent(new Event('INVENTORY_UPDATED'));
+            await recargarSalidas();
             setAlert({ open: true, type: 'success', message: 'Salida eliminada correctamente.' });
+        } catch (error) {
+            setAlert({ open: true, type: 'error', message: error.message || 'Error al eliminar la salida.' });
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleSubmit = (e) => {
+    // Una salida ENTREGADA descuenta stock: cancelarla lo devuelve
+    const handleCambiarEstado = async (estado) => {
+        if (!selectedOutput) return;
+        setLoading(true);
+        try {
+            await cambiarEstadoSalida(selectedOutput.id, estado);
+            EventBus.dispatchEvent(new Event('PRODUCTION_OUTPUT_UPDATED'));
+            EventBus.dispatchEvent(new Event('INVENTORY_UPDATED'));
+            // La selección debe refrescarse o la barra de herramientas sigue mostrando los botones del estado anterior
+            const salidas = await recargarSalidas();
+            setSelectedOutput(salidas.find(s => s.id === selectedOutput.id) || null);
+            setAlert({ open: true, type: 'success', message: `Salida ${estado.toLowerCase()} correctamente.` });
+        } catch (error) {
+            setAlert({ open: true, type: 'error', message: error.message || 'No se pudo cambiar el estado de la salida.' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
         // Validar campos requeridos
-        if (!form.fecha || !form.id_almacen || !form.id_tipo_salida) {
+        if (!form.fecha || !form.id_almacen || !form.id_tipo_salida || !form.id_responsable) {
             setAlert({ open: true, type: 'warning', message: 'Por favor complete todos los campos obligatorios.' });
             return;
         }
-
-        const almacen = almacenes.find(a => a.id === parseInt(form.id_almacen));
-        const tipoSalida = dummyTiposSalida.find(t => t.id === parseInt(form.id_tipo_salida));
-
-        if (formMode === 'creating') {
-            // Registrar nueva salida en backend, incluyendo detalles
-            registrarSalida({
-                fecha: form.fecha,
-                id_almacen: form.id_almacen,
-                id_tipo_salida: form.id_tipo_salida,
-                id_orden_trabajo: form.id_orden_trabajo,
-                detalle: form.detalle,
-                departamento: form.departamento,
-                destino: form.destino,
-                observaciones: form.observaciones,
-                detalles: detalles,
-                id_responsable: 1
-            })
-            .then(() => {
-                setAlert({ open: true, type: 'success', message: 'Salida registrada correctamente.' });
-                EventBus.dispatchEvent(new Event('PRODUCTION_OUTPUT_UPDATED'));
-                // Refrescar la tabla
-                return fetchSalidas();
-            })
-            .then(data => {
-                setOutputs(Array.isArray(data) ? data : []);
-            })
-            .catch(() => {
-                setAlert({ open: true, type: 'error', message: 'Error al registrar salida.' });
-            });
-        } else if (formMode === 'editing') {
-            // Actualizar salida existente
-            setOutputs(prevOutputs => prevOutputs.map(output => 
-                output.id === selectedOutput.id 
-                    ? {
-                        ...output,
-                        fecha: form.fecha,
-                        id_almacen: parseInt(form.id_almacen),
-                        almacen_nombre: almacen ? `${almacen.codigo} - ${almacen.nombre}` : '',
-                        id_tipo_salida: parseInt(form.id_tipo_salida),
-                        tipo_salida_nombre: tipoSalida?.nombre || '',
-                        id_orden_trabajo: form.id_orden_trabajo || null,
-                        detalle: form.detalle,
-                        departamento: form.departamento,
-                        destino: form.destino,
-                        observaciones: form.observaciones,
-                    }
-                    : output
-                     
-            ));
-            EventBus.dispatchEvent(new Event('PRODUCTION_OUTPUT_UPDATED'));
-            setAlert({ open: true, type: 'success', message: 'Salida actualizada correctamente.' });
+        if (detalles.length === 0) {
+            setAlert({ open: true, type: 'warning', message: 'Agregue al menos un producto a la salida.' });
+            return;
+        }
+        if (detalles.some(item => !(Number(item.cantidad) > 0))) {
+            setAlert({ open: true, type: 'error', message: 'Todos los productos deben tener una cantidad mayor a 0.' });
+            return;
         }
 
-        setFormMode('disabled');
-        setSelectedOutput(null);
+        const payload = {
+            fecha: form.fecha,
+            id_almacen: Number(form.id_almacen),
+            id_tipo_salida: Number(form.id_tipo_salida),
+            id_orden_trabajo: form.id_orden_trabajo ? Number(form.id_orden_trabajo) : null,
+            id_responsable: Number(form.id_responsable),
+            detalle: form.detalle,
+            departamento: form.departamento,
+            destino: form.destino,
+            observaciones: form.observaciones,
+            detalles: detalles.map(item => ({
+                id_producto: Number(item.id_producto ?? item.productoId),
+                cantidad: Number(item.cantidad)
+            }))
+        };
+
+        setLoading(true);
+        try {
+            if (formMode === 'editing' && selectedOutput) {
+                await actualizarSalida(selectedOutput.id, payload);
+                setAlert({ open: true, type: 'success', message: 'Salida actualizada correctamente.' });
+            } else {
+                await registrarSalida(payload);
+                setAlert({ open: true, type: 'success', message: 'Salida registrada correctamente.' });
+            }
+            EventBus.dispatchEvent(new Event('PRODUCTION_OUTPUT_UPDATED'));
+            EventBus.dispatchEvent(new Event('INVENTORY_UPDATED'));
+            await recargarSalidas();
+            setFormMode('disabled');
+            setSelectedOutput(null);
+            setDetalles([]);
+        } catch (error) {
+            setAlert({ open: true, type: 'error', message: error.message || 'Error al guardar la salida.' });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleCancel = () => {
         setFormMode('disabled');
         setSelectedOutput(null);
-        setForm({
-            fecha: '',
-            id_almacen: '',
-            id_tipo_salida: '',
-            id_orden_trabajo: '',
-            detalle: '',
-            departamento: '',
-            destino: '',
-            observaciones: '',
-        });
+        setDetalles([]);
+        setForm(formVacio(user));
         setAlert({ open: true, type: 'info', message: 'Operación cancelada.' });
     };
 
     const handleChange = (field, value) => setForm(f => ({ ...f, [field]: value }));
+
+    const handleRowSelect = async (output) => {
+        if (formMode !== 'disabled') return;
+        if (selectedOutput?.id === output.id) {
+            setSelectedOutput(null);
+            setDetallesSalidaSeleccionada([]);
+            return;
+        }
+        setSelectedOutput(output);
+        setLoadingDetalles(true);
+        setDetallesSalidaSeleccionada([]);
+        try {
+            const data = await fetchSalidaById(output.id);
+            setDetallesSalidaSeleccionada(data.detalles || []);
+        } catch (error) {
+            setAlert({ open: true, type: 'error', message: error.message || 'No se pudo cargar el detalle de la salida.' });
+        } finally {
+            setLoadingDetalles(false);
+        }
+    };
 
 
     return (
@@ -324,14 +373,40 @@ function ProductionOutput() {
                                 <PlusIcon className="w-4 h-4" />
                                 Crear
                             </Button>
-                            <Button onClick={handleEdit} disabled={!selectedOutput}>
+                            <Button onClick={handleEdit} disabled={!selectedOutput || loading}>
                                 <PencilIcon className="w-4 h-4" />
                                 Editar
                             </Button>
-                            <Button onClick={handleDelete} disabled>
-                                <TrashIcon className="w-4 h-4" />
-                                Eliminar
-                            </Button>
+                            <div className="border-r border-gray-300 pr-2">
+                                <Button onClick={handleDelete} disabled={!selectedOutput || loading}>
+                                    <TrashIcon className="w-4 h-4" />
+                                    Eliminar
+                                </Button>
+                            </div>
+                            {selectedOutput?.estado === 'ENTREGADA' && (
+                                <Button onClick={() => handleCambiarEstado('CANCELADA')} disabled={loading} variant="danger">
+                                    <XMarkIcon className="w-4 h-4" />
+                                    Cancelar y devolver stock
+                                </Button>
+                            )}
+                            {selectedOutput?.estado === 'CANCELADA' && (
+                                <Button onClick={() => handleCambiarEstado('ENTREGADA')} disabled={loading} variant="success">
+                                    <CheckIcon className="w-4 h-4" />
+                                    Volver a entregar
+                                </Button>
+                            )}
+                            {selectedOutput?.estado === 'PENDIENTE' && (
+                                <>
+                                    <Button onClick={() => handleCambiarEstado('ENTREGADA')} disabled={loading} variant="success">
+                                        <CheckIcon className="w-4 h-4" />
+                                        Entregar
+                                    </Button>
+                                    <Button onClick={() => handleCambiarEstado('CANCELADA')} disabled={loading} variant="danger">
+                                        <XMarkIcon className="w-4 h-4" />
+                                        Cancelar
+                                    </Button>
+                                </>
+                            )}
                         </>
                     )}
                     {(formMode === 'creating' || formMode === 'editing') && (
@@ -377,37 +452,42 @@ function ProductionOutput() {
                             <FormField label="Almacén" layout="side" labelClassName="w-24">
                                 <Select
                                     value={form.id_almacen}
-                                    onChange={e => handleChange('id_almacen', e)}
+                                    onChange={value => handleAlmacenChange(value)}
                                     required
-                                    options={
-                                        almacenes.length === 0
-                                            ? []
-                                            : almacenes
-                                                .filter(almacen => almacen.es_principal !== 1)
-                                                .map(almacen => ({
-                                                    value: almacen.id,
-                                                    label: `${almacen.codigo} - ${almacen.nombre}`
-                                                }))
-                                    }
+                                    options={almacenes.map(almacen => ({
+                                        value: String(almacen.id),
+                                        label: `${almacen.codigo} - ${almacen.nombre}`
+                                    }))}
                                     placeholder={almacenes.length === 0 ? 'Cargando almacenes...' : 'Seleccionar almacén'}
                                 />
                             </FormField>
                             <FormField label="Tipo Salida" layout="side" labelClassName="w-24">
                                 <Select
                                     value={form.id_tipo_salida}
-                                    onChange={e => handleChange('id_tipo_salida', e)}
+                                    onChange={value => handleChange('id_tipo_salida', value)}
                                     required
-                                    options={dummyTiposSalida.map(tipo => ({
-                                        value: tipo.id,
+                                    options={tiposSalida.map(tipo => ({
+                                        value: String(tipo.id),
                                         label: tipo.nombre
                                     }))}
                                     placeholder="Seleccionar tipo"
                                 />
                             </FormField>
+                            <FormField label="Responsable" layout="side" labelClassName="w-24">
+                                <ComboBox
+                                    options={responsableOptions}
+                                    value={form.id_responsable}
+                                    onSelect={value => handleChange('id_responsable', value)}
+                                    placeholder="Seleccione el responsable"
+                                    required
+                                    clearable={true}
+                                    searchable={true}
+                                />
+                            </FormField>
                             <FormField label="Orden Trabajo" layout="side" labelClassName="w-24">
-                                <Input 
-                                    value={form.id_orden_trabajo} 
-                                    onChange={e => handleChange('id_orden_trabajo', e.target.value)} 
+                                <Input
+                                    value={form.id_orden_trabajo}
+                                    onChange={e => handleChange('id_orden_trabajo', onlyDigits(e.target.value, 10))}
                                     placeholder="Número de orden"
                                 />
                             </FormField>
@@ -458,17 +538,21 @@ function ProductionOutput() {
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {detalles.map((detalle, index) => (
+                                                {detalles.map((detalle, index) => {
+                                                    // El stock real es el del inventario cargado; al editar puede no coincidir con lo que salió
+                                                    const disponible = inventario.find(p => String(p.id_producto) === String(detalle.productoId))?.stock_actual
+                                                        ?? detalle.stock_actual;
+                                                    return (
                                                     <tr key={index}>
                                                         <td className="p-2 text-xs w-full">{detalle.productoNombre}</td>
-                                                        <td className="p-2 text-xs w-24 text-right font-mono">{detalle.stock_actual}</td>
+                                                        <td className="p-2 text-xs w-24 text-right font-mono">{disponible ?? '-'}</td>
                                                         <td className="p-2 text-xs w-48">
                                                             <Input
                                                                 type="number"
                                                                 min={1}
-                                                                max={detalle.stock_actual}
+                                                                max={disponible}
                                                                 value={detalle.cantidad}
-                                                                onChange={e => handleCantidadChange(index, Math.min(Number(detalle.stock_actual) || Infinity, Math.max(1, parseInt(onlyDigits(e.target.value, 7) || '1', 10))))}
+                                                                onChange={e => handleCantidadChange(index, Math.min(Number(disponible) || Infinity, Math.max(1, parseInt(onlyDigits(e.target.value, 7) || '1', 10))))}
                                                                 className="w-20"
                                                             />
                                                         </td>
@@ -478,7 +562,8 @@ function ProductionOutput() {
                                                             </Button>
                                                         </td>
                                                     </tr>
-                                                ))}
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -499,51 +584,39 @@ function ProductionOutput() {
                                         <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Tipo</th>
                                         <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Departamento</th>
                                         <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Destino</th>
+                                        <th className="p-2 text-center text-xs font-medium text-black uppercase tracking-wider">Estado</th>
                                         <th className="p-2 text-left text-xs font-medium text-black uppercase tracking-wider">Detalle</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {outputs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="text-center py-8 text-gray-500">No hay salidas registradas</td>
+                                            <td colSpan={9} className="text-center py-8 text-gray-500">No hay salidas registradas</td>
                                         </tr>
                                     ) : (
                                         outputs.map((output, idx) => (
-                                            <>
+                                            <Fragment key={output.id || idx}>
                                                 <tr
-                                                    key={output.id || idx}
                                                     className={`hover:bg-slate-600 hover:text-white cursor-pointer transition-colors ${selectedOutput?.id === output.id ? 'bg-slate-600 text-white' : ''}`}
-                                                    onClick={async () => {
-                                                        if (selectedOutput?.id === output.id) {
-                                                            setSelectedOutput(null);
-                                                            setDetallesSalidaSeleccionada([]);
-                                                            return;
-                                                        }
-                                                        setSelectedOutput(output);
-                                                        setLoadingDetalles(true);
-                                                        setDetallesSalidaSeleccionada([]);
-                                                        try {
-                                                            const data = await authenticatedFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3210'}/api/salidas/${output.id}`);
-                                                            setDetallesSalidaSeleccionada(data.detalles || []);
-                                                        } catch {
-                                                            setDetallesSalidaSeleccionada([]);
-                                                        } finally {
-                                                            setLoadingDetalles(false);
-                                                        }
-                                                    }}
+                                                    onClick={() => handleRowSelect(output)}
                                                 >
                                                     <td className="p-2 text-xs text-center">{idx + 1}</td>
                                                     <td className="p-2 text-xs">{output.codigo}</td>
-                                                    <td className="p-2 text-xs">{output.fecha}</td>
-                                                    <td className="p-2 text-xs">{output.almacen_nombre}</td>
+                                                    <td className="p-2 text-xs">{fechaCorta(output.fecha)}</td>
+                                                    <td className="p-2 text-xs">{output.almacen_origen_nombre}</td>
                                                     <td className="p-2 text-xs">{output.tipo_salida_nombre}</td>
                                                     <td className="p-2 text-xs">{output.departamento}</td>
                                                     <td className="p-2 text-xs">{output.destino}</td>
+                                                    <td className="p-2 text-xs text-center">
+                                                        <span className={`px-2 py-0.5 rounded text-xs ${ESTADO_ESTILOS[output.estado] || 'bg-gray-100 text-gray-700'}`}>
+                                                            {output.estado || '-'}
+                                                        </span>
+                                                    </td>
                                                     <td className="p-2 text-xs">{output.detalle}</td>
                                                 </tr>
                                                 {selectedOutput?.id === output.id && (
                                                     <tr>
-                                                        <td colSpan={8} className="bg-blue-white">
+                                                        <td colSpan={9} className="bg-gray-50">
                                                             {loadingDetalles ? (
                                                                 <div className="text-xs text-gray-500">Cargando detalles...</div>
                                                             ) : detallesSalidaSeleccionada.length === 0 ? (
@@ -575,7 +648,7 @@ function ProductionOutput() {
                                                         </td>
                                                     </tr>
                                                 )}
-                                            </>
+                                            </Fragment>
                                         ))
                                     )}
                                 </tbody>

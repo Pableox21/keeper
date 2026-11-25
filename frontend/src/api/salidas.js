@@ -34,3 +34,16 @@ export const eliminarSalida = async (id) => {
         method: 'DELETE'
     });
 };
+
+// Obtener una salida con su detalle
+export const fetchSalidaById = async (id) => {
+    return authenticatedFetch(`${API_URL}/api/salidas/${id}`);
+};
+
+// Cambiar el estado de una salida (PENDIENTE / ENTREGADA / CANCELADA)
+export const cambiarEstadoSalida = async (id, estado) => {
+    return authenticatedFetch(`${API_URL}/api/salidas/${id}/estado`, {
+        method: 'PATCH',
+        body: JSON.stringify({ estado })
+    });
+};

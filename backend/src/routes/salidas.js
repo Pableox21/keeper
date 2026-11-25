@@ -17,5 +17,8 @@ router.get('/opciones', salidasController.getOpcionesSalida);
 router.get('/', salidasController.getAllSalidas);
 router.get('/:id', salidasController.getSalidaById);
 router.post('/', requireRole('ADMIN', 'ALMACEN'), validate.validateSalida, salidasController.createSalida);
+router.put('/:id', requireRole('ADMIN', 'ALMACEN'), validate.validateSalida, salidasController.updateSalida);
+router.patch('/:id/estado', requireRole('ADMIN', 'ALMACEN'), salidasController.cambiarEstadoSalida);
+router.delete('/:id', requireRole('ADMIN', 'ALMACEN'), salidasController.deleteSalida);
 
 module.exports = router;

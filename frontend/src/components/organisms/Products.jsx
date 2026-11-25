@@ -18,7 +18,7 @@ import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import EventBus from '../../utils/EventBus';
-import { fetchUnidadesMedida, crearUnidadMedida } from '../../api/unidadesMedida';
+import { fetchUnidadesMedida, buscarOCrearUnidadMedida } from '../../api/unidadesMedida';
 
 
 import { onlyDigits, codeChars } from '../../utils/fieldRules';
@@ -36,7 +36,9 @@ function Products() {
         empresa: '',
         categoria: '',
         linea: '',
-        marca: ''
+        marca: '',
+        precio: '',
+        estado: 'ACTIVO'
     };
     const {
         values: formData,
@@ -47,6 +49,7 @@ function Products() {
 
     const [products, setProducts] = useState([])
     const [originalProducts, setOriginalProducts] = useState([])
+    const [productosError, setProductosError] = useState('');
     const [unidadVentaOptions, setUnidadVentaOptions] = useState([]);
     const [filters, setFilters] = useState({
         empresa: '',
@@ -58,7 +61,8 @@ function Products() {
         unidad: '',
         stockMinimo: '',
         stockMaximo: '',
-        precio: ''
+        precio: '',
+        estado: ''
     });
     const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
 
@@ -81,9 +85,12 @@ function Products() {
             const data = await apiFetchProductos();
             setProducts(data);
             setOriginalProducts(data);
-        } catch {
+            setProductosError('');
+        } catch (error) {
             setProducts([]);
             setOriginalProducts([]);
+            // Un fallo de red o del servidor no es "no hay productos"
+            setProductosError(error.message || 'No se pudieron cargar los productos');
         }
     };
 
@@ -137,7 +144,9 @@ function Products() {
             empresa: getEntityName(selectedProduct.empresa || selectedProduct.id_empresa, empresaOptions || []),
             categoria: getEntityName(selectedProduct.categoria || selectedProduct.id_categoria, categoriaOptions || []),
             linea: getEntityName(selectedProduct.linea || selectedProduct.id_linea, lineaOptions || []),
-            marca: getEntityName(selectedProduct.marca || selectedProduct.id_marca, marcaOptions || [])
+            marca: getEntityName(selectedProduct.marca || selectedProduct.id_marca, marcaOptions || []),
+            precio: selectedProduct.precio_venta ?? '',
+            estado: selectedProduct.estado || 'ACTIVO'
         });
         setFormMode('editing');
         setEditingId(selectedProduct.id_producto);
@@ -172,7 +181,7 @@ function Products() {
     }
 
     const getOrCreateEntityId = async (entityName, entityValue, fetchFn, createFn) => {
-        if (!entityValue || !entityValue.trim()) return 1;
+        if (!entityValue || !entityValue.trim()) return null;
         const normalizedValue = entityValue.trim().toUpperCase();
         try {
             const entities = await fetchFn();
@@ -181,8 +190,9 @@ function Products() {
             const newEntity = await createFn(normalizedValue);
             return newEntity.id;
         } catch (err) {
+            // Sin id no se inventa uno: el backend responde 400 explicando qué falta
             console.error(`Error gestionando ${entityName}:`, err);
-            return 1;
+            return null;
         }
     };
     const handleImportExcel = async (e) => {
@@ -228,9 +238,21 @@ function Products() {
                     precio = Number(precioRaw);
                 }
 
-                let estado = get('estado') || '';
-                estado = (estado.toString().toLowerCase().includes('seleccionado') ||
-                    estado.toString().toLowerCase().includes('activo')) ? 'ACTIVO' : 'INACTIVO';
+                // La columna "Vigente" admite tanto el estado del catálogo como Marcado/No marcado
+                const bruto = String(get('estado') || '').trim().toUpperCase();
+                const ESTADOS = ['ACTIVO', 'INACTIVO', 'DESCONTINUADO'];
+                let estado;
+                if (ESTADOS.includes(bruto)) {
+                    estado = bruto;
+                } else if (bruto.includes('NO SELECCIONADO')) {
+                    // Se prueba primero porque "NO SELECCIONADO" también contiene "SELECCIONADO"
+                    estado = 'INACTIVO';
+                } else if (bruto.includes('SELECCIONADO') || bruto.includes('ACTIVO')) {
+                    // Aquí "INACTIVO" ya quedó descartado por la comparación exacta de arriba
+                    estado = 'ACTIVO';
+                } else {
+                    estado = 'INACTIVO';
+                }
 
                 rows.push({
                     empresa: get('empresa'),
@@ -248,23 +270,12 @@ function Products() {
             let success = 0, fail = 0, skipped = 0;
 
             // Obtener todas las unidades de medida existentes una sola vez
-            let unidades = await fetchUnidadesMedida();
+            const unidades = await fetchUnidadesMedida();
             for (const producto of rows) {
                 try {
                     let productoExistente = productosPorCodigo[producto.codigo];
-                    // Buscar o crear unidad de medida
-                    let unidadNombre = (producto.unidad_ingreso || 'Unidad').trim();
-                    let unidad = unidades.find(u => u.nombre.trim().toLowerCase() === unidadNombre.toLowerCase());
-                    let id_unidad_medida;
-                    if (unidad) {
-                        id_unidad_medida = unidad.id;
-                    } else {
-                        // Crear nueva unidad de medida con tipo UNIDAD y abreviatura igual al nombre
-                        const nuevaUnidad = await crearUnidadMedida({ nombre: unidadNombre, abreviatura: unidadNombre, tipo: 'UNIDAD', descripcion: '' });
-                        id_unidad_medida = nuevaUnidad.id;
-                        // Actualizar cache local
-                        unidades.push(nuevaUnidad);
-                    }
+                    // El producto se guarda por id de unidad; el nombre del Excel se busca o se crea
+                    const id_unidad_medida = await buscarOCrearUnidadMedida(producto.unidad_ingreso, unidades);
                     if (!productoExistente) {
                         let id_empresa = null;
                         let id_categoria = null;
@@ -285,7 +296,6 @@ function Products() {
                         const productoCompleto = {
                             codigo: producto.codigo,
                             nombre: producto.nombre,
-                            unidad_ingreso: unidadNombre,
                             precio_venta: producto.precio_venta,
                             estado: producto.estado,
                             id_empresa,
@@ -344,10 +354,10 @@ function Products() {
         const producto = {
             codigo: formData.codigo,
             nombre: formData.nombre,
-            unidad_ingreso: formData.unidadVenta || 'Unidad',
             stock_minimo: formData.stockMinimo ? Number(formData.stockMinimo) : 0,
             stock_maximo: formData.stockMaximo ? Number(formData.stockMaximo) : null,
-            estado: 'ACTIVO',
+            precio_venta: formData.precio !== '' && formData.precio !== null ? Number(formData.precio) : 0,
+            estado: formData.estado || 'ACTIVO',
             id_empresa: empresaId,
             id_categoria: categoriaId,
             id_marca: marcaId,
@@ -368,12 +378,13 @@ function Products() {
             EventBus.dispatchEvent(new Event('PRODUCTS_UPDATED'));
             fetchProductos();
         } catch (error) {
-            if (error.error && error.error.includes('Duplicate entry')) {
-                showAlert('error', 'Ya existe un producto con ese código.');
-            } else {
-                const action = formMode === 'editing' ? 'actualizar' : 'crear';
-                showAlert('error', `Error al ${action} producto: ` + (error.error || error.message));
-            }
+            const action = formMode === 'editing' ? 'actualizar' : 'crear';
+            // authenticatedFetch deja en error.message el texto que devolvió el backend
+            // (código duplicado, empresa inexistente, ...); TypeError es fetch sin conexión
+            const mensaje = error instanceof TypeError
+                ? `No hay conexión con el servidor al ${action} el producto`
+                : error.message;
+            showAlert('error', mensaje);
         }
     }
 
@@ -404,8 +415,10 @@ function Products() {
                 'Código',
                 'Nombre',
                 'Unidad',
+                'Precio',
                 'Stock Mín',
                 'Stock Máx',
+                'Estado',
                 'Empresa',
                 'Categoría',
                 'Línea',
@@ -416,8 +429,10 @@ function Products() {
                 product.codigo || '',
                 product.nombre || '',
                 product.unidad_ingreso || product.unidadVenta || '',
+                Number(product.precio_venta || 0).toFixed(2),
                 product.stock_minimo || 0,
                 product.stock_maximo || '',
+                product.estado || 'ACTIVO',
                 product.empresa || '',
                 product.categoria || '',
                 product.linea || '',
@@ -425,7 +440,7 @@ function Products() {
             ]);
 
             // Calcular margen para centrar la tabla
-            const tableWidth = 18 + 35 + 15 + 15 + 15 + 20 + 20 + 20 + 20; // 178mm
+            const tableWidth = 18 + 30 + 14 + 12 + 10 + 10 + 14 + 16 + 16 + 16 + 16; // 172mm
             const leftMargin = (pageWidth - tableWidth) / 2;
 
             // Crear la tabla
@@ -452,14 +467,16 @@ function Products() {
                 margin: { top: 35, left: leftMargin, right: leftMargin },
                 columnStyles: {
                     0: { cellWidth: 18, halign: 'center' }, // Código
-                    1: { cellWidth: 35, halign: 'left' }, // Nombre
-                    2: { cellWidth: 15, halign: 'center' }, // Unidad
-                    3: { cellWidth: 15, halign: 'center' }, // Stock Mín
-                    4: { cellWidth: 15, halign: 'center' }, // Stock Máx
-                    5: { cellWidth: 20, halign: 'center' }, // Empresa
-                    6: { cellWidth: 20, halign: 'center' }, // Categoría
-                    7: { cellWidth: 20, halign: 'center' }, // Línea
-                    8: { cellWidth: 20, halign: 'center' }  // Marca
+                    1: { cellWidth: 30, halign: 'left' }, // Nombre
+                    2: { cellWidth: 14, halign: 'center' }, // Unidad
+                    3: { cellWidth: 12, halign: 'right' }, // Precio
+                    4: { cellWidth: 10, halign: 'center' }, // Stock Mín
+                    5: { cellWidth: 10, halign: 'center' }, // Stock Máx
+                    6: { cellWidth: 14, halign: 'center' }, // Estado
+                    7: { cellWidth: 16, halign: 'center' }, // Empresa
+                    8: { cellWidth: 16, halign: 'center' }, // Categoría
+                    9: { cellWidth: 16, halign: 'center' }, // Línea
+                    10: { cellWidth: 16, halign: 'center' }  // Marca
                 },
                 theme: 'grid'
             });
@@ -515,8 +532,16 @@ function Products() {
         { value: '', label: 'Todos' },
         ...Array.from(new Set(products.map(p => p.stock_minimo || 0))).sort((a, b) => a - b).map(val => ({ value: String(val), label: val.toString() }))
     ];
+    const precioOptions = [
+        { value: '', label: 'Todos' },
+        ...Array.from(new Set(products.map(p => Number(p.precio_venta || 0)))).sort((a, b) => a - b).map(val => ({ value: String(val), label: val.toFixed(2) }))
+    ];
+    const estadoOptions = [
+        { value: '', label: 'Todos' },
+        ...Array.from(new Set(products.map(p => p.estado || 'ACTIVO'))).map(val => ({ value: val, label: val }))
+    ];
 
-    let filteredProducts = products.filter(product =>
+    const productoPasaFiltros = (product) => (
         (filters.empresa === '' || product.empresa === filters.empresa) &&
         (filters.categoria === '' || product.categoria === filters.categoria) &&
         (filters.linea === '' || product.linea === filters.linea) &&
@@ -525,8 +550,12 @@ function Products() {
         (filters.nombre === '' || product.nombre === filters.nombre) &&
         (filters.unidad === '' || (product.unidad_ingreso || product.unidadVenta) === filters.unidad) &&
         (filters.stockMinimo === '' || (product.stock_minimo || 0) == filters.stockMinimo) &&
-        (filters.stockMaximo === '' || product.stock_maximo == filters.stockMaximo)
+        (filters.stockMaximo === '' || product.stock_maximo == filters.stockMaximo) &&
+        (filters.precio === '' || Number(product.precio_venta || 0) == filters.precio) &&
+        (filters.estado === '' || (product.estado || 'ACTIVO') === filters.estado)
     );
+
+    let filteredProducts = products.filter(productoPasaFiltros);
 
     if (sortConfig.key && sortConfig.direction) {
         filteredProducts = [...filteredProducts].sort((a, b) => {
@@ -547,6 +576,10 @@ function Products() {
                 aValue = a.stock_maximo || 0;
                 bValue = b.stock_maximo || 0;
             }
+            if (sortConfig.key === 'precio_venta') {
+                aValue = Number(a.precio_venta || 0);
+                bValue = Number(b.precio_venta || 0);
+            }
 
             if (!isNaN(Number(aValue)) && !isNaN(Number(bValue))) {
                 aValue = Number(aValue);
@@ -560,17 +593,7 @@ function Products() {
             return 0;
         });
     } else if (!sortConfig.key && originalProducts.length > 0) {
-        filteredProducts = originalProducts.filter(product =>
-            (filters.empresa === '' || product.empresa === filters.empresa) &&
-            (filters.categoria === '' || product.categoria === filters.categoria) &&
-            (filters.linea === '' || product.linea === filters.linea) &&
-            (filters.marca === '' || product.marca === filters.marca) &&
-            (filters.codigo === '' || product.codigo === filters.codigo) &&
-            (filters.nombre === '' || product.nombre === filters.nombre) &&
-            (filters.unidad === '' || (product.unidad_ingreso || product.unidadVenta) === filters.unidad) &&
-            (filters.stockMinimo === '' || (product.stock_minimo || 0) == filters.stockMinimo) &&
-            (filters.stockMaximo === '' || product.stock_maximo == filters.stockMaximo)
-        );
+        filteredProducts = originalProducts.filter(productoPasaFiltros);
     }
 
     // Exportar productos a Excel con formato profesional
@@ -594,7 +617,7 @@ function Products() {
 
             // Fila 3: Encabezados en el nuevo orden
             const headers = [
-                'Código', 'Nombre', 'Unidad', 'Stock Mín', 'Stock Máx', 'Empresa', 'Categoría', 'Línea', 'Marca'
+                'Código', 'Nombre', 'Unidad', 'Precio', 'Stock Mín', 'Stock Máx', 'Estado', 'Empresa', 'Categoría', 'Línea', 'Marca'
             ];
             worksheet.addRow([]); // Fila 2 vacía
             worksheet.addRow(headers);
@@ -621,8 +644,10 @@ function Products() {
                     product.codigo || '',
                     product.nombre || '',
                     product.unidad_ingreso || product.unidadVenta || '',
+                    Number(product.precio_venta || 0),
                     product.stock_minimo || 0,
                     product.stock_maximo || '',
+                    product.estado || 'ACTIVO',
                     product.empresa || '',
                     product.categoria || '',
                     product.linea || '',
@@ -816,6 +841,32 @@ function Products() {
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-2">
+                                    <FormField label="Precio" layout="side" labelClassName="w-20">
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={formData.precio}
+                                            onChange={e => handleChange('precio', e.target.value)}
+                                            placeholder="0.00"
+                                            disabled={formMode === 'disabled'}
+                                        />
+                                    </FormField>
+                                    <FormField label="Estado" layout="side" labelClassName="w-20">
+                                        <ComboBox
+                                            options={[
+                                                { value: 'ACTIVO', label: 'ACTIVO' },
+                                                { value: 'INACTIVO', label: 'INACTIVO' },
+                                                { value: 'DESCONTINUADO', label: 'DESCONTINUADO' }
+                                            ]}
+                                            value={formData.estado || 'ACTIVO'}
+                                            onSelect={value => handleChange('estado', value)}
+                                            placeholder="Selecciona estado"
+                                            searchable={false}
+                                            clearable={false}
+                                            disabled={formMode === 'disabled'}
+                                        />
+                                    </FormField>
                                 </div>
                                 <div className="flex flex-col gap-2">
                                     <FormField label="Línea" layout="side" labelClassName="w-14">
@@ -844,7 +895,7 @@ function Products() {
                                             disabled={formMode === 'disabled'}
                                         />
                                     </FormField>
-                                    <FormField label="Empresa" layout="side" labelClassName="w-14">
+                                    <FormField label="Empresa" layout="side" labelClassName="w-14" required>
                                         <EntityManagerContainer
                                             label="Empresa"
                                             value={formData.empresa}
@@ -857,7 +908,7 @@ function Products() {
                                             disabled={formMode === 'disabled'}
                                         />
                                     </FormField>
-                                    <FormField label="Categoría" layout="side" labelClassName="w-14">
+                                    <FormField label="Categoría" layout="side" labelClassName="w-14" required>
                                         <EntityManagerContainer
                                             label="Categoría"
                                             value={formData.categoria}
@@ -884,8 +935,10 @@ function Products() {
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('codigo')}>Código{sortConfig.key === 'codigo' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('nombre')}>Nombre{sortConfig.key === 'nombre' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('unidad')}>Unidad{sortConfig.key === 'unidad' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
+                                    <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('precio_venta')}>Precio{sortConfig.key === 'precio_venta' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('stock_minimo')}>Stock Mín{sortConfig.key === 'stock_minimo' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('stock_maximo')}>Stock Máx{sortConfig.key === 'stock_maximo' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
+                                    <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('estado')}>Estado{sortConfig.key === 'estado' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('empresa')}>Empresa{sortConfig.key === 'empresa' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('categoria')}>Categoría{sortConfig.key === 'categoria' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
                                     <th className="sticky top-0 bg-gray-50 z-10 p-2 text-left text-xs font-medium text-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none" onClick={() => handleSort('linea')}>Línea{sortConfig.key === 'linea' && (sortConfig.direction === 'asc' ? ' ▲' : sortConfig.direction === 'desc' ? ' ▼' : '')}</th>
@@ -919,6 +972,14 @@ function Products() {
                                     </th>
                                     <th>
                                         <ComboBox
+                                            value={filters.precio}
+                                            onChange={v => setFilters(f => ({ ...f, precio: v }))}
+                                            options={precioOptions}
+                                            className="font-normal text-left"
+                                        />
+                                    </th>
+                                    <th>
+                                        <ComboBox
                                             value={filters.stockMinimo}
                                             onChange={v => setFilters(f => ({ ...f, stockMinimo: v }))}
                                             options={stockMinOptions}
@@ -930,6 +991,14 @@ function Products() {
                                             value={filters.stockMaximo}
                                             onChange={v => setFilters(f => ({ ...f, stockMaximo: v }))}
                                             options={stockMaxOptions}
+                                            className="font-normal text-left"
+                                        />
+                                    </th>
+                                    <th>
+                                        <ComboBox
+                                            value={filters.estado}
+                                            onChange={v => setFilters(f => ({ ...f, estado: v }))}
+                                            options={estadoOptions}
                                             className="font-normal text-left"
                                         />
                                     </th>
@@ -978,8 +1047,10 @@ function Products() {
                                         <td className="p-2 text-xs truncate whitespace-nowrap" title={product.codigo}>{product.codigo}</td>
                                         <td className="p-2 text-xs truncate whitespace-nowrap" title={product.nombre}>{product.nombre}</td>
                                         <td className="p-2 text-xs truncate whitespace-nowrap" title={product.unidad_ingreso || product.unidadVenta}>{product.unidad_ingreso || product.unidadVenta || ''}</td>
+                                        <td className="p-2 text-xs text-right whitespace-nowrap">{Number(product.precio_venta || 0).toFixed(2)}</td>
                                         <td className="p-2 text-xs text-center whitespace-nowrap">{product.stock_minimo || 0}</td>
                                         <td className="p-2 text-xs text-center whitespace-nowrap">{product.stock_maximo || '-'}</td>
+                                        <td className="p-2 text-xs text-center whitespace-nowrap">{product.estado || 'ACTIVO'}</td>
                                         <td className="p-2 text-xs truncate whitespace-nowrap" title={product.empresa}>{product.empresa || ''}</td>
                                         <td className="p-2 text-xs truncate whitespace-nowrap" title={product.categoria}>{product.categoria || ''}</td>
                                         <td className="p-2 text-xs truncate whitespace-nowrap" title={product.linea}>{product.linea || ''}</td>
@@ -991,7 +1062,9 @@ function Products() {
                     </div>
                     {filteredProducts.length === 0 && (
                         <div className="text-center py-8 text-gray-500">
-                            {products.length > 0 ? 'No se encontraron productos que coincidan con los filtros' : 'No hay productos registrados'}
+                            {productosError
+                                ? `Error al cargar productos: ${productosError}`
+                                : products.length > 0 ? 'No se encontraron productos que coincidan con los filtros' : 'No hay productos registrados'}
                         </div>
                     )}
                 </div>

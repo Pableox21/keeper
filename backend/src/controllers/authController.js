@@ -69,7 +69,6 @@ exports.logout = async (req, res) => {
 
 //////////////////////////////////////// HELPERS USUARIOS ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 const ROLES = ['ADMIN', 'ALMACEN', 'ATENCION_CLIENTE'];
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
 const MAX_PASSWORD_LENGTH = 72; // bcrypt solo considera los primeros 72 caracteres
 

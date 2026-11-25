@@ -16,14 +16,21 @@ export function validateRequiredFields(values, requiredFields) {
 }
 
 /**
- * Ejemplo de validación personalizada para productos
+ * Validación de campos obligatorios del alta/edición de productos
  */
 export function validateProductForm(values) {
-  const required = ['codigo', 'nombre'];
-  const missing = required.filter(f => !values[f] || values[f].toString().trim() === '');
+  // Empresa y categoría son obligatorias: la columna no admite nulo y sin ellas el alta falla
+  const required = {
+    codigo: 'Código',
+    nombre: 'Nombre',
+    empresa: 'Empresa',
+    categoria: 'Categoría'
+  };
+  const missing = Object.entries(required)
+    .filter(([field]) => !values[field] || values[field].toString().trim() === '')
+    .map(([, label]) => label);
   if (missing.length > 0) {
     return `Por favor, completa los campos obligatorios: ${missing.join(', ')}`;
   }
-  // Puedes agregar más validaciones aquí
   return null;
 }

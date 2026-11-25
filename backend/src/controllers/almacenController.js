@@ -1,5 +1,17 @@
 const { pool, poolExterna } = require('../config/db');
 const { handleBigInt } = require('../utils/bigIntHandler');
+const { responderErrorBase } = require('../utils/erroresBase');
+
+
+// El error de la base se traduce; el SQL crudo solo queda en el log del servidor
+function responderErrorAlmacen(res, err, contexto) {
+    return responderErrorBase(res, err, contexto, {
+        duplicado: 'No se pudo guardar: ya existe un almacén con ese código',
+        foranea: 'El tipo de almacén, la cuenta contable, el centro de costo o el responsable no existen',
+        referencia: 'El almacén tiene movimientos asociados: se desactiva en lugar de eliminarse',
+        generico: 'No se pudo completar la operación con el almacén'
+    });
+}
 
 
 /--------------------Obtener personal tecnico de la base externa-----------------------------------------------------------------------------------/
@@ -78,8 +90,7 @@ exports.getAllAlmacenes = async (req, res) => {
         res.json(handleBigInt(almacenesConTecnico));
         
     } catch (error) {
-        console.error('Error en getAllAlmacenes:', error);
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'getAllAlmacenes');
     }
 };
 
@@ -127,8 +138,7 @@ exports.getAlmacenById = async (req, res) => {
 
         res.json(handleBigInt({ ...almacen[0], tecnico_optiweb_nombre: nombreTecnicoExterno }));
     } catch (error) {
-        console.error('Error en getAlmacenById:', error);
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'getAlmacenById');
     }
 };
 
@@ -149,9 +159,9 @@ exports.getAlmacenesByTipo = async (req, res) => {
             ORDER BY a.nombre
         `;
         const almacenes = await pool.query(query, [tipo]);
-        res.json(almacenes);
+        res.json(handleBigInt(almacenes));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'getAlmacenesByTipo');
     }
 };
 
@@ -234,7 +244,7 @@ exports.createAlmacen = async (req, res) => {
         }));
 
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'createAlmacen');
     } finally {
         if (conn) conn.release();
     }
@@ -311,14 +321,15 @@ exports.updateAlmacen = async (req, res) => {
         res.json({ message: 'Almacén actualizado correctamente' });
 
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'updateAlmacen');
     } finally {
         if (conn) conn.release();
     }
 };
 
 
-/--------------------Borrar Almacen exceptop el Principal-----------------------------------------------------------------------------------/
+/--------------------Borrar Almacen excepto el Principal-----------------------------------------------------------------------------------/
+// Se elimina solo si el almacén no tiene nada detrás; si tiene historia, se desactiva.
 exports.deleteAlmacen = async (req, res) => {
     let conn;
     try {
@@ -327,7 +338,7 @@ exports.deleteAlmacen = async (req, res) => {
         conn = await pool.getConnection();
 
         const existente = await conn.query(
-            'SELECT id, es_principal FROM almacen WHERE id = ?', 
+            'SELECT id, codigo, es_principal FROM almacen WHERE id = ?',
             [id]
         );
         if (existente.length === 0) {
@@ -340,25 +351,42 @@ exports.deleteAlmacen = async (req, res) => {
             });
         }
 
-        const inventario = await conn.query(
+        const conStock = await conn.query(
             'SELECT id FROM inventario WHERE id_almacen = ? AND stock_actual > 0', 
             [id]
         );
-        if (inventario.length > 0) {
+        if (conStock.length > 0) {
             return res.status(400).json({ 
-                error: 'No se puede eliminar un almacén con stock' 
+                error: 'No se puede eliminar un almacén con stock: primero traspase o saque sus productos' 
             });
         }
 
-        await conn.query(
-            'UPDATE almacen SET estado = "INACTIVO", updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ?',
-            [req.user.id, id]
-        );
+        const [inventario, ingresos, salidas, traspasos] = await Promise.all([
+            conn.query('SELECT id FROM inventario WHERE id_almacen = ?', [id]),
+            conn.query('SELECT id FROM ingreso WHERE id_almacen = ?', [id]),
+            conn.query('SELECT id FROM salida WHERE id_almacen = ?', [id]),
+            conn.query('SELECT id FROM traspaso WHERE id_almacen_origen = ? OR id_almacen_destino = ?', [id, id])
+        ]);
+        const tieneHistorial = [inventario, ingresos, salidas, traspasos].some(filas => filas.length > 0);
 
-        res.json({ message: 'Almacén desactivado correctamente' });
+        if (tieneHistorial) {
+            await conn.query(
+                'UPDATE almacen SET estado = "INACTIVO", updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ?',
+                [req.user.id, id]
+            );
+            return res.json({
+                message: `El almacén "${existente[0].codigo}" tiene movimientos registrados: se desactivó en lugar de eliminarse`,
+                desactivado: true
+            });
+        }
+
+        await conn.query('DELETE FROM inventario WHERE id_almacen = ?', [id]);
+        await conn.query('DELETE FROM almacen WHERE id = ?', [id]);
+
+        res.json({ message: 'Almacén eliminado correctamente', eliminado: true });
 
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'deleteAlmacen');
     } finally {
         if (conn) conn.release();
     }
@@ -367,7 +395,6 @@ exports.deleteAlmacen = async (req, res) => {
 
 /--------------------Opciones para completar formularios-----------------------------------------------------------------------------------/
 exports.getOpcionesAlmacen = async (req, res) => {
-    console.log("Hola opciones");
     try {
         const [tiposAlmacen, cuentasContables, responsables, centrosCosto] = await Promise.all([
             pool.query('SELECT id, nombre FROM tipo_almacen'),
@@ -378,24 +405,19 @@ exports.getOpcionesAlmacen = async (req, res) => {
 
         let personalTecnico = [];
         try {
-            if (poolExterna && typeof poolExterna.getConnection === 'function') {
-                const conn = await poolExterna.getConnection();
-                const query = `
-                    SELECT 
-                        CODIGO as id,
-                        CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo,
-                        CARGO,
-                        ESTADO
-                    FROM personal
-                    WHERE CARGO IN ('SOPORTE TECNICO', 'INSTALADOR', 'REDES')
-                    AND ESTADO = 'ACTIVO'
-                    ORDER BY nombre_completo
-                `;
-                personalTecnico = await conn.query(query);
-                conn.release();
-            }
+            personalTecnico = await poolExterna.query(`
+                SELECT
+                    CODIGO as id,
+                    CONCAT(NOMBRES, ' ', APELLIDOS) as nombre_completo,
+                    CARGO,
+                    ESTADO
+                FROM personal
+                WHERE CARGO IN ('SOPORTE TECNICO', 'INSTALADOR', 'REDES')
+                AND ESTADO = 'ACTIVO'
+                ORDER BY nombre_completo
+            `);
         } catch (error) {
-            console.warn('No se pudo obtener personal técnico en opciones:', error.message);
+            console.warn('Base externa no disponible: opciones de almacén sin personal técnico:', error.message);
             personalTecnico = [];
         }
 
@@ -407,6 +429,6 @@ exports.getOpcionesAlmacen = async (req, res) => {
             personalTecnico
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorAlmacen(res, error, 'getOpcionesAlmacen');
     }
 };

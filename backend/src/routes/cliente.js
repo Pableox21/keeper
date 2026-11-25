@@ -13,9 +13,9 @@ router.use(authMiddleware, denyRoles('ALMACEN'));
 // Lectura: cualquier usuario autenticado (salvo ALMACEN). Escritura: ADMIN y ATENCION_CLIENTE,
 // que solo puede operar aquí (ver ROLE_SCOPES en authMiddleware).
 router.get('/', clienteController.getAllClientes);
-router.post('/', requireRole('ADMIN', 'ATENCION_CLIENTE'), clienteController.createCliente);
-router.put('/:id', requireRole('ADMIN', 'ATENCION_CLIENTE'), clienteController.updateCliente);
-router.patch('/:id/estado', requireRole('ADMIN', 'ATENCION_CLIENTE'), clienteController.setClienteEstado);
+router.post('/', requireRole('ADMIN', 'ATENCION_CLIENTE'), validate.validateCliente, clienteController.createCliente);
+router.put('/:id', requireRole('ADMIN', 'ATENCION_CLIENTE'), validate.validateCliente, clienteController.updateCliente);
+router.patch('/:id/estado', requireRole('ADMIN', 'ATENCION_CLIENTE'), validate.validateEstadoCliente, clienteController.setClienteEstado);
 router.delete('/:id', requireRole('ADMIN', 'ATENCION_CLIENTE'), clienteController.deleteCliente);
 
 module.exports = router;

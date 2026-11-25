@@ -86,7 +86,7 @@ function Warehouses() {
             es_tecnico: 1,
             capacidad: '',
             id_cuenta_contable: '',
-            id_tipo: '',
+            id_tipo: opciones.tiposAlmacen[0]?.id ? String(opciones.tiposAlmacen[0].id) : '',
             id_centro_costo: '',
             id_tecnico_optiweb: ''
         });
@@ -107,7 +107,7 @@ function Warehouses() {
             es_tecnico: selectedWarehouse.es_tecnico || 0,
             capacidad: selectedWarehouse.capacidad || '',
             id_cuenta_contable: selectedWarehouse.id_cuenta_contable || '',
-            id_tipo: selectedWarehouse.id_tipo || '',
+            id_tipo: selectedWarehouse.id_tipo ? String(selectedWarehouse.id_tipo) : '',
             id_centro_costo: selectedWarehouse.id_centro_costo || '',
             id_tecnico_optiweb: selectedWarehouse.id_tecnico_optiweb || ''
         });
@@ -115,17 +115,21 @@ function Warehouses() {
     };
     const handleDelete = async () => {
         if (!selectedWarehouse) return;
-        if (window.confirm(`¿Está seguro de eliminar el almacén "${selectedWarehouse.nombre}"?`)) {
-            try {
-                await eliminarAlmacen(selectedWarehouse.id);
-                setWarehouses(prev => prev.filter(w => w.id !== selectedWarehouse.id));
-                setSelectedWarehouse(null);
-                EventBus.dispatchEvent(new Event('WAREHOUSES_UPDATED'));
-                setAlert({ open: true, type: 'success', message: 'Almacén eliminado correctamente.' });
-            } catch (error) {
-                console.error('Error al eliminar almacén:', error);
-                setAlert({ open: true, type: 'error', message: 'Error al eliminar el almacén.' });
-            }
+        if (!window.confirm(`¿Está seguro de eliminar el almacén "${selectedWarehouse.nombre}"?`)) return;
+        try {
+            const respuesta = await eliminarAlmacen(selectedWarehouse.id);
+            const almacenesActualizados = await fetchAlmacenes();
+            setWarehouses(almacenesActualizados);
+            setSelectedWarehouse(null);
+            EventBus.dispatchEvent(new Event('WAREHOUSES_UPDATED'));
+            setAlert({
+                open: true,
+                type: respuesta?.desactivado ? 'warning' : 'success',
+                message: respuesta?.message || 'Almacén eliminado correctamente.'
+            });
+        } catch (error) {
+            console.error('Error al eliminar almacén:', error);
+            setAlert({ open: true, type: 'error', message: error.message || 'Error al eliminar el almacén.' });
         }
     };
     const handleSubmit = async (e) => {
@@ -140,6 +144,10 @@ function Warehouses() {
             setAlert({ open: true, type: 'error', message: 'Para almacenes técnicos debe seleccionar un técnico.' });
             return;
         }
+        if (!form.id_tipo) {
+            setAlert({ open: true, type: 'error', message: 'Debe seleccionar el tipo de almacén.' });
+            return;
+        }
 
         // Validar que no exista ya un almacén técnico para el mismo técnico
         if (form.es_tecnico && form.id_tecnico_optiweb) {
@@ -149,10 +157,9 @@ function Warehouses() {
                 return;
             }
         }
-        // Configurar datos para almacén técnico
+        // Configurar datos del almacén técnico que crea esta pantalla
         const formConTipo = {
             ...form,
-            id_tipo: 1, // Tipo fijo por ahora
             es_principal: 0, // Almacén técnico no es principal
             es_tecnico: 1,   // Es almacén técnico
             capacidad: form.capacidad === '' ? null : Number(form.capacidad),
@@ -281,7 +288,7 @@ function Warehouses() {
                             <FormField label="Estado" layout="side" labelClassName="w-20">
                                 <Select
                                     value={form.estado}
-                                    onChange={e => handleChange('estado', e)}
+                                    onChange={value => handleChange('estado', value)}
                                     options={[
                                         { value: 'ACTIVO', label: 'ACTIVO' },
                                         { value: 'INACTIVO', label: 'INACTIVO' }
@@ -290,12 +297,24 @@ function Warehouses() {
                                     placeholder="Seleccionar estado"
                                 />
                             </FormField>
+                            <FormField label="Tipo" layout="side" labelClassName="w-20">
+                                <Select
+                                    value={form.id_tipo}
+                                    onChange={value => handleChange('id_tipo', value)}
+                                    options={opciones.tiposAlmacen.map(tipo => ({
+                                        value: String(tipo.id),
+                                        label: tipo.nombre
+                                    }))}
+                                    required
+                                    placeholder={opciones.tiposAlmacen.length === 0 ? 'Cargando tipos...' : 'Seleccionar tipo'}
+                                />
+                            </FormField>
                             <FormField label="C.C. / Técnico" layout="side" labelClassName="w-20">
                                 <Select
                                     value={form.id_tecnico_optiweb}
-                                    onChange={e => handleChange('id_tecnico_optiweb', e)}
+                                    onChange={value => handleChange('id_tecnico_optiweb', value)}
                                     options={opciones.personalTecnico.map(tecnico => ({
-                                        value: tecnico.id,
+                                        value: String(tecnico.id),
                                         label: tecnico.nombre_completo
                                     }))}
                                     placeholder="Seleccionar técnico"

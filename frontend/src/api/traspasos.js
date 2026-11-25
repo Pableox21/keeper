@@ -5,7 +5,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3210';
 // Función para obtener todas las opciones del formulario de traspasos
 export async function fetchOpcionesTraspaso() {
     const data = await authenticatedFetch(`${API_URL}/api/traspasos/opciones`);
-    console.log('Respuesta /api/traspasos/opciones:', data);
     return data;
 }
 

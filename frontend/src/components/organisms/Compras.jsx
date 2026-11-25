@@ -1,20 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { onlyDigits } from '../../utils/fieldRules';
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { Input, Alert, Select } from '../atoms';
 import { ComboBox } from '../molecules';
 import { fetchProductos as apiFetchProductos } from '../../api/productos';
 import { fetchProveedores } from '../../api/proveedores';
-// import { fetchAlmacenes } from '../../api/almacenes';
 import { fetchIngresos, fetchIngresoById, crearIngreso, eliminarIngreso, actualizarIngreso } from '../../api/ingresos';
+import { fetchAlmacenes } from '../../api/almacenes';
+import { useAuth } from '../../hooks/useAuth';
 import Button from '../atoms/Button';
 import { FormField } from '../molecules';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import EventBus from '../../utils/EventBus';
-
-const usuarioLogueado = { id: 1, nombre: 'Usuario Demo' };
 
 function getHoraActual() {
     const now = new Date();
@@ -26,7 +25,15 @@ function getFechaActual() {
     return now.toISOString().slice(0, 10);
 }
 
+// La API devuelve la fecha como texto ISO; las tablas y el input type="date" trabajan con AAAA-MM-DD
+function fechaCorta(valor) {
+    if (!valor) return '';
+    const texto = String(valor);
+    return /^\d{4}-\d{2}-\d{2}/.test(texto) ? texto.slice(0, 10) : texto;
+}
+
 function Compras() {
+    const { user } = useAuth();
     const [alert, setAlert] = useState({ open: false, type: 'info', message: '' });
     const [formMode, setFormMode] = useState('disabled'); // 'disabled', 'creating', 'editing'
     const [selectedCompra, setSelectedCompra] = useState(null);
@@ -38,7 +45,7 @@ function Compras() {
     const [detalleCompra, setDetalleCompra] = useState([]);
 
     const [proveedores, setProveedores] = useState([]);
-    // const [almacenes, setAlmacenes] = useState([]);
+    const [almacenes, setAlmacenes] = useState([]);
 
     const [compras, setCompras] = useState([]);
     const [loadingCompras, setLoadingCompras] = useState(false);
@@ -48,7 +55,9 @@ function Compras() {
         if (formMode === 'creating' || formMode === 'editing') {
             apiFetchProductos().then(setProductos).catch(() => setProductos([]));
             fetchProveedores().then(setProveedores).catch(() => setProveedores([]));
-            // fetchAlmacenes().then(setAlmacenes).catch(() => setAlmacenes([]))
+            fetchAlmacenes()
+                .then(data => setAlmacenes((data || []).filter(a => a.estado === 'ACTIVO')))
+                .catch(() => setAlmacenes([]));
         }
     }, [formMode]);
 
@@ -126,11 +135,11 @@ function Compras() {
                 proveedorId: data.id_proveedor?.toString() || '',
                 detalle: data.detalle || '',
                 almacenId: data.id_almacen?.toString() || '',
-                fecha: data.fecha || getFechaActual(),
+                fecha: fechaCorta(data.fecha) || getFechaActual(),
                 hora: data.hora || getHoraActual(),
                 tipoDoc: data.doc_respaldo || '',
                 formaPago: data.forma_pago || '',
-                id_responsable: data.id_responsable || usuarioLogueado.id
+                id_responsable: data.id_responsable || user?.id
             });
             setDetalleCompra(
                 (data.detalles || []).map(item => ({
@@ -162,6 +171,28 @@ function Compras() {
     };
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (!form.proveedorId) {
+            setAlert({ open: true, type: 'error', message: 'Selecciona un proveedor' });
+            return;
+        }
+        if (!form.almacenId) {
+            setAlert({ open: true, type: 'error', message: 'Selecciona el almacén donde ingresa la compra' });
+            return;
+        }
+        if (detalleCompra.length === 0) {
+            setAlert({ open: true, type: 'error', message: 'Agrega al menos un producto a la compra' });
+            return;
+        }
+        if (detalleCompra.some(item => !(Number(item.cantidad) > 0))) {
+            setAlert({ open: true, type: 'error', message: 'Todos los productos deben tener cantidad mayor a 0' });
+            return;
+        }
+        if (detalleCompra.some(item => !(Number(item.precio) > 0))) {
+            setAlert({ open: true, type: 'error', message: 'Todos los productos deben tener un precio mayor a 0' });
+            return;
+        }
+
         const total = detalleCompra.reduce((sum, item) => sum + (Number(item.cantidad) * Number(item.precio)), 0);
 
         const detalles = detalleCompra.map(item => ({
@@ -175,7 +206,6 @@ function Compras() {
             id_almacen: Number(form.almacenId),
             fecha: form.fecha,
             hora: form.hora,
-            id_tipo_ingreso: 1,
             doc_respaldo: form.tipoDoc,
             numero_doc: form.nroDoc,
             codigo: '',
@@ -196,7 +226,7 @@ function Compras() {
                 setAlert({ open: true, type: 'success', message: 'Compra registrada correctamente' });
             }
             setForm({
-                nroDoc: '', proveedorId: '', detalle: '', almacenId: '', fecha: getFechaActual(), hora: getHoraActual(), tipoDoc: '', formaPago: '', id_responsable: usuarioLogueado.id
+                nroDoc: '', proveedorId: '', detalle: '', almacenId: '', fecha: getFechaActual(), hora: getHoraActual(), tipoDoc: '', formaPago: '', id_responsable: user?.id
             });
             setDetalleCompra([]);
             EventBus.dispatchEvent(new Event('COMPRAS_UPDATED'));
@@ -246,7 +276,7 @@ function Compras() {
             const tableData = compras.map(compra => [
                 compra.codigo || '-',
                 compra.numero_doc || '-',
-                compra.fecha || '-',
+                compra.fecha ? fechaCorta(compra.fecha) : '-',
                 compra.proveedor_nombre || '-',
                 compra.almacen_nombre || '-',
                 compra.total || '0'
@@ -340,7 +370,7 @@ function Compras() {
                 worksheet.addRow([
                     compra.codigo || '-',
                     compra.numero_doc || '-',
-                    compra.fecha || '-',
+                    compra.fecha ? fechaCorta(compra.fecha) : '-',
                     compra.proveedor_nombre || '-',
                     compra.almacen_nombre || '-',
                     compra.total || '0'
@@ -390,12 +420,12 @@ function Compras() {
         nroDoc: '',
         proveedorId: '',
         detalle: '',
-        almacenId: 1,
+        almacenId: '',
         fecha: getFechaActual(),
         hora: getHoraActual(),
         tipoDoc: '',
         formaPago: '',
-        id_responsable: usuarioLogueado.id
+        id_responsable: user?.id
     });
     const handleChange = (field, value) => setForm(f => ({ ...f, [field]: value }));
 
@@ -517,23 +547,19 @@ function Compras() {
                                     </FormField>
                                 </div>
 
-                                {/* <div className="col-span-1 row-span-1">
-                                    <FormField label="Almacén" layout="side" labelClassName="w-24">
-
                                 <div className="col-span-1 row-span-1">
-                                    <FormField label="C.costo" layout="side" labelClassName="w-24">
-
+                                    <FormField label="Almacén" layout="side" labelClassName="w-24">
                                         <ComboBox
                                             options={almacenes.map(a => ({ value: a.id.toString(), label: a.nombre }))}
                                             value={form.almacenId}
                                             onSelect={value => handleChange('almacenId', value)}
-                                            placeholder="Seleccionar centro de costo"
+                                            placeholder="Seleccionar almacén"
                                             searchable={true}
                                             clearable={true}
                                             disabled={almacenes.length === 0}
                                         />
                                     </FormField>
-                                </div> */}
+                                </div>
                                 <div className="col-span-2 row-span-1">
                                     <FormField label="Detalle" layout="side" labelClassName="w-24 h-full" className="flex-1" inputWrapperClassName="h-full">
                                         <Input
@@ -646,16 +672,15 @@ function Compras() {
                                         </tr>
                                     ) : (
                                         compras.map((compra, idx) => (
-                                            <>
+                                            <Fragment key={compra.id || idx}>
                                                 <tr
-                                                    key={compra.id || idx}
                                                     className={`hover:bg-slate-600 hover:text-white cursor-pointer transition-colors ${selectedCompra?.id === compra.id ? 'bg-slate-600 text-white' : ''}`}
                                                     onClick={() => handleSelectCompra(compra)}
                                                 >
                                                     <td className="p-2 text-xs text-center">{idx + 1}</td>
                                                     <td className="p-2 text-xs">{compra.codigo || ''}</td>
                                                     <td className="p-2 text-xs">{compra.numero_doc || ''}</td>
-                                                    <td className="p-2 text-xs">{compra.fecha || ''}</td>
+                                                    <td className="p-2 text-xs">{fechaCorta(compra.fecha)}</td>
                                                     <td className="p-2 text-xs">{compra.proveedor_nombre || ''}</td>
                                                     <td className="p-2 text-xs">{compra.detalle || ''}</td>
                                                     <td className="p-2 text-xs">{compra.almacen_nombre || ''}</td>
@@ -697,7 +722,7 @@ function Compras() {
                                                         </td>
                                                     </tr>
                                                 )}
-                                            </>
+                                            </Fragment>
                                         ))
                                     )}
                                 </tbody>

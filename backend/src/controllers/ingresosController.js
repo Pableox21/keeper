@@ -1,5 +1,21 @@
 const { pool } = require('../config/db');
 const { handleBigInt } = require('../utils/bigIntHandler');
+const { responderErrorBase } = require('../utils/erroresBase');
+const { productosConStockInsuficiente, mensajeStockInsuficiente } = require('../utils/movimientos');
+
+
+// El error de la base se traduce; el SQL crudo solo queda en el log del servidor
+function responderErrorIngreso(res, err, contexto) {
+    return responderErrorBase(res, err, contexto, {
+        duplicado: 'No se pudo guardar: el código del ingreso ya existe o hay un producto repetido en el detalle',
+        foranea: 'El proveedor, el almacén, el responsable o algún producto del detalle no existen',
+        referencia: 'No se puede eliminar el ingreso porque está asociado a otros registros',
+        check: 'La cantidad y el precio de cada línea deben ser mayores a 0',
+        generico: 'No se pudo completar la operación con el ingreso'
+    });
+}
+
+const stockInsuficiente = (accion, faltantes) => mensajeStockInsuficiente(accion, faltantes, 'el ingreso');
 
 
 /--------------------Obtener-Listar Opciones necesarias para Fomrulario Compras--------------------------------------------------------------------------------------/
@@ -10,7 +26,9 @@ exports.getOpcionesIngreso = async (req, res) => {
             pool.query('SELECT id, codigo, nombre FROM almacen WHERE estado = "ACTIVO"'),
             pool.query('SELECT id, nombre FROM tipo_ingreso WHERE id = 1'),
             pool.query('SELECT id, username FROM usuario WHERE estado = "ACTIVO"'),
-            pool.query('SELECT id, codigo, nombre, unidad_ingreso FROM producto WHERE estado = "ACTIVO"')
+            pool.query(`SELECT p.id, p.codigo, p.nombre, COALESCE(um.nombre, p.unidad_ingreso) AS unidad_ingreso
+                        FROM producto p LEFT JOIN unidad_medida um ON p.id_unidad_medida = um.id
+                        WHERE p.estado = "ACTIVO"`)
         ]);
 
         res.json({
@@ -21,7 +39,7 @@ exports.getOpcionesIngreso = async (req, res) => {
             productos
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorIngreso(res, error, 'getOpcionesIngreso');
     }
 };
 
@@ -46,7 +64,7 @@ exports.getAllIngresos = async (req, res) => {
         const ingresos = await pool.query(query);
         res.json(handleBigInt(ingresos));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorIngreso(res, error, 'getAllIngresos');
     }
 };
 
@@ -125,12 +143,7 @@ exports.createIngreso = async (req, res) => {
         
     } catch (error) {
         if (conn) await conn.rollback();
-        console.log('Error details:', {
-            message: error.message,
-            stack: error.stack,
-            body: req.body
-        });
-        res.status(500).json({ error: error.message });
+        responderErrorIngreso(res, error, 'createIngreso');
     } finally {
         if (conn) conn.release();
     }
@@ -170,13 +183,14 @@ exports.getIngresoById = async (req, res) => {
                 id.*,
                 p.codigo as producto_codigo,
                 p.nombre as producto_nombre,
-                p.unidad_ingreso,
+                COALESCE(um.nombre, p.unidad_ingreso) as unidad_ingreso,
                 e.nombre as empresa_nombre,
                 c.nombre as categoria_nombre,
                 l.nombre as linea_nombre,
                 m.nombre as marca_nombre
             FROM ingreso_detalle id
             LEFT JOIN producto p ON id.id_producto = p.id
+            LEFT JOIN unidad_medida um ON p.id_unidad_medida = um.id
             LEFT JOIN empresa e ON p.id_empresa = e.id
             LEFT JOIN categoria c ON p.id_categoria = c.id
             LEFT JOIN linea l ON p.id_linea = l.id
@@ -191,7 +205,7 @@ exports.getIngresoById = async (req, res) => {
 
         res.json(handleBigInt(ingresoCompleto));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        responderErrorIngreso(res, error, 'getIngresoById');
     } finally {
         if (conn) conn.release();
     }
@@ -238,6 +252,12 @@ exports.updateIngreso = async (req, res) => {
         );
 
         const detallesActuales = detallesActualesResult || [];
+
+        const faltantes = await productosConStockInsuficiente(conn, detallesActuales, ingresoActual.id_almacen);
+        if (faltantes.length > 0) {
+            await conn.rollback();
+            return res.status(400).json({ error: stockInsuficiente('actualizar el ingreso', faltantes) });
+        }
 
         for (const detalleActual of detallesActuales) {
             await revertirInventario(
@@ -319,8 +339,7 @@ exports.updateIngreso = async (req, res) => {
         
     } catch (error) {
         if (conn) await conn.rollback();
-        console.log('Error en updateIngreso:', error);
-        res.status(500).json({ error: error.message });
+        responderErrorIngreso(res, error, 'updateIngreso');
     } finally {
         if (conn) conn.release();
     }
@@ -354,6 +373,12 @@ exports.deleteIngreso = async (req, res) => {
 
         const detalles = detallesResult || [];
 
+        const faltantes = await productosConStockInsuficiente(conn, detalles, ingreso.id_almacen);
+        if (faltantes.length > 0) {
+            await conn.rollback();
+            return res.status(400).json({ error: stockInsuficiente('eliminar el ingreso', faltantes) });
+        }
+
         for (const detalle of detalles) {
             await revertirInventario(
                 conn, 
@@ -382,8 +407,7 @@ exports.deleteIngreso = async (req, res) => {
         
     } catch (error) {
         if (conn) await conn.rollback();
-        console.log('Error en deleteIngreso:', error);
-        res.status(500).json({ error: error.message });
+        responderErrorIngreso(res, error, 'deleteIngreso');
     } finally {
         if (conn) conn.release();
     }
